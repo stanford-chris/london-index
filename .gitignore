@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+card.png
+.post.lock
+london_index_state.json
+card_history.jsonl
+scratch/

@@ -1,0 +1,60 @@
+<svg viewBox="0 0 400 400" width="400" height="400" xmlns="http://www.w3.org/2000/svg">
+  <!-- London Index avatar, v9: the Underground roundel, not Big Ben.
+       Four attempts at a tower silhouette never landed - it's real
+       architecture, and a flat icon of it either reads as generic or as
+       nothing recognisable at all. The roundel is the actual answer: it's
+       the single most-recognised London symbol there is, unambiguous even
+       to people who've never seen the real Elizabeth Tower, and it already
+       IS a ring plus a bar - which is exactly this avatar's own shape
+       (cream ring, one bold cream mark). The ring is the existing 40-digit
+       data ribbon, now doing double duty as the roundel's circle; the bar
+       crossing it carries the name directly, the way a real roundel
+       carries a station name, so there's no more ambiguity about what city
+       this is. #2c4c70 is a visual blend of a real London skyline photo's
+       sky (vivid cobalt) and Thames water (darker, muted blue-grey) - an
+       estimate, not a pixel sample, since the photo wasn't saved to disk
+       for actual sampling. Cream #f5f0e6, unchanged throughout. -->
+  <rect width="400" height="400" fill="#f5f0e6"/>
+  <g fill="#2c4c70" font-family="'Helvetica Neue',Arial,sans-serif" font-weight="800" font-size="38" text-anchor="middle" dominant-baseline="central">
+    <text x="200" y="50" transform="rotate(0 200 200)">0</text>
+    <text x="200" y="50" transform="rotate(10 200 200)">1</text>
+    <text x="200" y="50" transform="rotate(20 200 200)">1</text>
+    <text x="200" y="50" transform="rotate(30 200 200)">0</text>
+    <text x="200" y="50" transform="rotate(40 200 200)">1</text>
+    <text x="200" y="50" transform="rotate(50 200 200)">1</text>
+    <text x="200" y="50" transform="rotate(60 200 200)">1</text>
+    <text x="200" y="50" transform="rotate(70 200 200)">0</text>
+    <!-- 80/90/100 skipped: re-derived for 10-degree spacing (was 9) so the
+         nearest kept digit sits at the true safe boundary (~4.6px clearance)
+         rather than wherever a finer grid happened to land. -->
+    <text x="200" y="50" transform="rotate(110 200 200)">0</text>
+    <text x="200" y="50" transform="rotate(120 200 200)">0</text>
+    <text x="200" y="50" transform="rotate(130 200 200)">1</text>
+    <text x="200" y="50" transform="rotate(140 200 200)">0</text>
+    <text x="200" y="50" transform="rotate(150 200 200)">1</text>
+    <text x="200" y="50" transform="rotate(160 200 200)">0</text>
+    <text x="200" y="50" transform="rotate(170 200 200)">1</text>
+    <text x="200" y="50" transform="rotate(180 200 200)">1</text>
+    <text x="200" y="50" transform="rotate(190 200 200)">1</text>
+    <text x="200" y="50" transform="rotate(200 200 200)">0</text>
+    <text x="200" y="50" transform="rotate(210 200 200)">1</text>
+    <text x="200" y="50" transform="rotate(220 200 200)">0</text>
+    <text x="200" y="50" transform="rotate(230 200 200)">0</text>
+    <text x="200" y="50" transform="rotate(240 200 200)">1</text>
+    <text x="200" y="50" transform="rotate(250 200 200)">1</text>
+    <!-- 260/270/280 skipped, same reason as the mirrored gap above. -->
+    <text x="200" y="50" transform="rotate(290 200 200)">0</text>
+    <text x="200" y="50" transform="rotate(300 200 200)">1</text>
+    <text x="200" y="50" transform="rotate(310 200 200)">1</text>
+    <text x="200" y="50" transform="rotate(320 200 200)">1</text>
+    <text x="200" y="50" transform="rotate(330 200 200)">0</text>
+    <text x="200" y="50" transform="rotate(340 200 200)">1</text>
+    <text x="200" y="50" transform="rotate(350 200 200)">1</text>
+  </g>
+
+  <!-- The roundel's bar: extends past the ring's own edge on both sides,
+       same as the real thing, which is what makes the shape read as a
+       roundel rather than just a circle with a stripe through it. -->
+  <rect x="14" y="167" width="372" height="66" fill="#2c4c70" />
+  <text x="200" y="200" fill="#f5f0e6" font-family="'Helvetica Neue',Arial,sans-serif" font-weight="800" font-size="38" letter-spacing="1.5" text-anchor="middle" dominant-baseline="central">LONDON INDEX</text>
+</svg>

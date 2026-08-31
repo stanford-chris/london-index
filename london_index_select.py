@@ -1,0 +1,344 @@
+#!/usr/bin/env python3
+"""
+Selection step for London Index: harvest a pool via london_index_harvest,
+then ask `claude -p` to pick facts that read well together (2-4 in
+single-vein mode, 3-4 once cross-vein pairing is turned back on — see
+APPLES_TO_APPLES_ONLY below) and write a neutral opener. Python still owns
+every number — the selector only orders and words; it never emits a value,
+and compose() reuses the harvester's exact value string verbatim.
+
+Deliberately NOT built here (see the approved posting-pipeline plan):
+cross-vein collision detection, rotation/cooldown/vein-floor/repeat-guard.
+London Index has no posting history yet to build those against — the one
+thing kept from day one is a simple "don't pick the same fact id as last
+time" check via `state.json`'s `recent_ids`, nothing more elaborate.
+
+Public API:
+    build_pool(source=None) -> list[dict]
+        Runs the harvesters in-process (no subprocess), same facts
+        london_index_harvest.py prints, each tagged with a stable `id`.
+    select(pool, state) -> {"opener": {"emoji": str, "text": str}, "ids": [str, ...]}
+"""
+
+import argparse
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+import london_index_harvest as harvest
+
+HERE = Path(__file__).parent
+CLAUDE_MODEL = 'claude-sonnet-5'
+CLAUDE_TIMEOUT = 90
+RECENT_IDS_KEEP = 12
+CLAUDE_TOKEN_ACCOUNT = 'londonbot'
+CLAUDE_TOKEN_SERVICE = 'claude-oauth-token'
+
+
+def claude_env():
+    """The ambient CLI login is not enough for an unattended script call —
+    see scan_filer.py's and Seoul Index's own claude_env() for the same
+    lesson learned the hard way. Falls back to the plain environment if the
+    Keychain entry is missing, so the caller's own error message (not a
+    silent hang or an opaque auth failure) explains what to do."""
+    env = os.environ.copy()
+    r = subprocess.run(['security', 'find-generic-password', '-a', CLAUDE_TOKEN_ACCOUNT,
+                        '-s', CLAUDE_TOKEN_SERVICE, '-w'], capture_output=True, text=True)
+    if r.returncode == 0 and r.stdout.strip():
+        env['CLAUDE_CODE_OAUTH_TOKEN'] = r.stdout.strip()
+    return env
+
+
+def _slug(s):
+    return re.sub(r'[^a-z0-9]+', '-', s.lower()).strip('-')[:40]
+
+
+def build_pool(source=None):
+    keys = [source] if source else sorted(harvest.HARVESTERS)
+    pool = []
+    errors = {}
+    for key in keys:
+        facts, err = harvest.HARVESTERS[key]()
+        if err:
+            errors[key] = err
+            continue
+        for f in facts:
+            f['vein'] = key
+            # A stable id for anti-repeat tracking: the harvester itself
+            # assigns none, so one is derived from vein + label rather than
+            # the value (which changes every run for live veins).
+            f['id'] = f"{key}:{_slug(f['label'])}"
+            pool.append(f)
+    return pool, errors
+
+
+# For now, every card is restricted to a single vein's own built-in
+# comparison rather than a cross-vein pairing. Flip to False once there is
+# enough posting history to judge whether a cross-vein pairing reads as a
+# genuine comparison rather than a forced one — Chris's call, 29 August 2026.
+APPLES_TO_APPLES_ONLY = True
+
+_VEIN_RULE_SINGLE = """- SINGLE VEIN ONLY, for now. Pick 2 to 4 facts from ONE vein. Do NOT mix
+  facts from different veins onto one card — a bike-dock count next to a
+  crime count is not a comparison, however similar the two numbers look.
+  Cross-vein pairings are reserved for once there is more posting history to
+  judge them against; do not attempt one now even if a pairing looks
+  tempting.
+- PAIRS holds pre-detected sharp juxtapositions: Python has already found,
+  for each vein, one or more of: the widest gap between its candidates (a
+  "_gap" pair — the busiest station against the quietest, the fullest river
+  against the driest), a genuine near-tie (a "_heat" pair — two candidates
+  whose real values happen to land almost exactly together, out of a much
+  larger set Python sampled but did not otherwise surface), or a ranked list
+  of more than two entries (a "_top" group — e.g. the most congested tube
+  stations right now, already sorted highest first). STRONGLY prefer
+  building a card around one whole PAIR/group — that near-tie, wide gap or
+  ranking IS the joke, and it is a real fact about the data, not a framing
+  choice.
+  - "_heat": the opener MUST say so in plain words (e.g. "Neck and neck",
+    "Tied for the moment", "Dead heat") rather than a generic description of
+    the vein alone (e.g. "Tube station crowding") — the tie is the entire
+    reason these two were picked out of a much larger sampled set, and
+    without the opener stating it, nothing on the card tells a reader that
+    what they're seeing is a coincidence rather than an editorial claim that
+    these two particular entries matter more than the others.
+  - "_gap" and "_top" do not need that: each fact's own label already says
+    what the contrast is (whatever Python wrote it as — e.g. "Most above
+    normal"/"Most below normal", never invent a punchier synonym like
+    "Busiest"/"Quietest" the label doesn't say, since for some veins that
+    would claim an absolute ranking the underlying data can't support — see
+    tfl_crowding's own labels for why), and a "_top" group's own ranked
+    order already says what the list is. A "_top" group is picked WHOLE,
+    all of it, in the given order — never split or reordered, and never
+    blended with that vein's own "_gap" facts onto the same card; pick one
+    card shape or the other.
+  - For any of these three, add 0-2 more facts from the same vein around a
+    "_gap" or "_heat" pair only if they round the card out without diluting
+    its contrast — a "_top" group already fills the card on its own.
+  A vein offering more than one of "_gap"/"_heat"/"_top" is that many
+  different possible cards, not one card with everything on it — pick
+  whichever is the sharper unit for today and leave the rest for another
+  day. A vein with nothing in PAIRS is still a legitimate pick on its own
+  (2-4 of its facts), never padded out with a fact from a different vein to
+  reach a count."""
+
+_VEIN_RULE_CROSS = """- APPLES TO APPLES ONLY. Every pick's value must be the same KIND of
+  measurement as the others — not just the same numeric shape (a percentage,
+  a count), but actually comparable: a crowding percentage against another
+  crowding percentage, a river's fullness against another river's, one
+  borough's crime count against another borough's. "Comes from a different
+  vein than the others" is NOT a reason to pick something, and is never
+  worth it on its own. Concretely: start from ONE vein's own natural
+  built-in comparison (crowding's busiest/quietest, rivers' fullest/driest,
+  boroughs' most/fewest crime) as the anchor, and only add a fact from a
+  different vein if its value is genuinely the same kind of thing as the
+  anchor's, not merely a similar-looking number. A bad real example, do not
+  repeat this shape: "Within a mile of central London: 4,449" (a crime
+  count) + "Docking points across the scheme: 20,732" (a bike-dock count)
+  + "Quietest: Bank: 5% of baseline" (a crowding percentage) + "Boroughs
+  with a monitor: 33" (an air-quality count) under the opener "Around
+  London" — four different KINDS of number from four veins, none of them
+  actually comparable to any other despite three being nominally "counts",
+  so the card reads as four random numbers rather than one idea.
+- TWO MORE REAL FAILURES, from Seoul Index (its sibling bot, same
+  mechanism) once its cross-vein pairing went live: a static, undated
+  running total (library membership by age band) paired against a live,
+  momentary headcount (crowd at a named spot) purely because the two
+  magnitudes landed close together, two unrelated GROUPS of people whose
+  counts happen to be similar sized are not thereby a comparison, and this
+  shape slipped through TWICE. And a single day's figure (one station's
+  boardings on one date) paired against a whole month's figures (a month
+  of visitor totals) under one opener naming only the month, so the card
+  silently implied the daily figure was also a month's total. Before ever
+  pairing two veins, confirm both the SUBJECTS are actually comparable
+  (not just the number) and that they cover the SAME TIME WINDOW, or say so.
+- ACTIVELY LOOK FOR a genuine cross-vein pairing before settling for a
+  single vein — a single-vein pick is a perfectly good fallback, never the
+  default of first resort. "Same KIND of measurement" is broader than "same
+  vein": a percentage-of-its-own-normal is the same kind of thing whether
+  it is TfL crowding's "% of baseline" or a river's "% of range" — both
+  answer "how full/busy is this relative to what's typical for it", so
+  pairing London's busiest station against its fullest river is a
+  legitimate, interesting cross-vein contrast, not a forced one. Only fall
+  back to picking 3-4 facts from ONE vein when no cross-vein pairing in the
+  pool is actually this kind of genuine match — never pick from only one
+  vein merely because it is the easiest option."""
+
+_PICK_COUNT = '2 to 4' if APPLES_TO_APPLES_ONLY else '3 to 4'
+
+SELECT_PROMPT = """You are curating one post for London Index
+(@london-index.bsky.social), a Harper's-Index-style Bluesky bot: short,
+factual, dry. You are given POOL, a list of real facts already harvested
+from live London data sources. Pick """ + _PICK_COUNT + """ facts that read well together as
+one short set — a coherent theme, or a sharp contrast — and write ONE
+neutral opener line for them.
+
+Rules:
+- Pick fact ids from POOL only. Never invent a fact or alter a value.
+""" + (_VEIN_RULE_SINGLE if APPLES_TO_APPLES_ONLY else _VEIN_RULE_CROSS) + """
+- Do not pick any id in AVOID_IDS if a reasonable alternative exists.
+- The opener names no number and states no metric value itself — it sets
+  the scene in as few words as possible, 2 to 5 words, short enough to sit
+  on one line (e.g. "London on the move", "Trains, prices and pigeons").
+  Prefer the shortest phrasing that still reads naturally; do not pad it out.
+- NEVER say "this month" or "this week" or similar relative-to-today
+  phrasing. Some sources lag today by weeks or months (a police fact's
+  `period` might be "2026-06" while today is in August) — the card carries
+  NO date near the opener for this reason, so a relative phrase would be an
+  outright false claim about when the figures are from. If the picks share
+  a `period`, name the ACTUAL period INCLUDING THE YEAR (e.g. "2026-06" ->
+  "Reported crimes in June 2026", never the bare "in June") — the card's
+  image alone must never be ambiguous about the year if it is ever shared or
+  screenshotted without its reply, which is the only other place a date
+  might otherwise appear. For a live "right now" reading, do NOT add
+  "now"/"right now"/", now" to the opener — the card's own timestamp
+  ("29 August at 12:42 p.m.") already says so, and repeating it in the
+  opener too is redundant, not merely harmless. The same applies when
+  every pick shares a full calendar date (a single day, not a month or
+  year - vein "daily_footfall" is the one that does this): the card gets
+  its own dateline for that exact day, so the opener must NOT also name
+  the date ("Network footfall, 22 August 2026" repeats what the dateline
+  already states) — just describe what's being measured.
+- The individual line labels do NOT repeat what the opener already states —
+  a label like "Within a mile of central London" or "Most: Camden" assumes
+  the opener has already said what is being measured. So when every pick
+  shares one vein, the opener must be PRECISE about what that is, not just
+  short: for reported-crime facts (vein "police" or "police_boroughs"), say
+  "Reported crimes in June 2026" (using the real period, year included) or
+  similar, never a vaguer "Crime" alone — the reader has no other way to know these are
+  police-recorded reports, not verified or convicted crimes.
+- For vein "daily_footfall", NEVER say "Tube" in the opener — this vein
+  spans the whole network (Underground, Overground, DLR, Elizabeth line),
+  not Underground alone, and "Tube" specifically means Underground to a
+  London reader. A real example this rule exists because of: an opener
+  read "Tube footfall, neck and neck" for a pick that included Woodgrange
+  Park, which is Overground only. Say "network footfall" or similar
+  instead — never invent a claim about which lines are involved that the
+  picks themselves don't support.
+- Pick one emoji for the opener, or "" for none. It must depict something
+  concretely present in the picked facts (a train for a station, a bicycle
+  for cycle hires, a police car for crime) — never a figurative or
+  metaphorical stretch (scales of justice for "balance", a crystal ball for
+  "outlook"). If no single fact suggests an obvious emoji, use "".
+
+Reply with ONLY this JSON, nothing else:
+{"opener": {"emoji": "...", "text": "..."}, "ids": ["...", "..."]}
+"""
+
+# Fixed openers for specific (vein, pair) card shapes, keyed by that pair —
+# overridden deterministically in Python after the model call, never left to
+# the model to reproduce exactly on every run. Same reasoning as select.py's
+# own docstring on values ("Python still owns every number ... it never
+# emits a value"), extended to the one card shape where the title itself
+# needs to be exact rather than merely well-worded: a recurring, recognised
+# format reads as a feature when its title is always the same, and as an
+# inconsistency if it drifts run to run because a free-text instruction was
+# followed closely rather than exactly. Chris's call, 31 August 2026, after
+# seeing "Tube station crowding" and "Busiest tube stations" both used for
+# the busiest/quietest shape across different runs. crowd_top added the
+# same day, for the same reliability reason plus a second one: left to a
+# free-text instruction, a run had already written "Busiest tube stations"
+# for this exact shape — the same overclaim the crowd_gap labels themselves
+# were just fixed to stop making (see harvest_tfl_crowding()), reintroduced
+# through the one part of the card a label rename can't reach.
+FIXED_OPENERS = {
+    ('tfl_crowding', 'crowd_gap'): {'emoji': '🚇', 'text': 'The Tube right now'},
+    ('tfl_crowding', 'crowd_top'): {'emoji': '🚇', 'text': 'Busier than usual right now'},
+    # daily_footfall's two shapes went through an emoji-only override first
+    # (the 🚇 emoji was judged fine even though the vein's own opener rule
+    # forbids the WORD "Tube" in text, since the vein spans multiple modes
+    # and a reader takes a pictograph as evocative shorthand rather than a
+    # literal claim about which lines are included) — promoted to full
+    # fixed openers the same day, Chris's own exact wording.
+    ('daily_footfall', 'footfall_gap'): {'emoji': '🚇', 'text': 'Transport for London footfall'},
+    ('daily_footfall', 'footfall_top'): {'emoji': '🚇', 'text': 'Transport for London: Busiest stations'},
+}
+
+
+def select(pool, state):
+    avoid = state.get('recent_ids', [])[-RECENT_IDS_KEEP:]
+    slim = [{'id': f['id'], 'vein': f['vein'], 'label': f['label'],
+             'value': f['value'], 'period': f.get('period'),
+             'pair': f.get('pair')} for f in pool]
+    pairs = {}
+    for f in pool:
+        if f.get('pair'):
+            pairs.setdefault(f['pair'], []).append(f['id'])
+    payload = {'POOL': slim, 'PAIRS': pairs, 'AVOID_IDS': avoid}
+    prompt = SELECT_PROMPT + '\n\n' + json.dumps(payload, ensure_ascii=False)
+
+    attempts = 3
+    for attempt in range(attempts):
+        last = attempt == attempts - 1
+        try:
+            r = subprocess.run(['claude', '-p', '--model', CLAUDE_MODEL, prompt],
+                               capture_output=True, text=True, env=claude_env(),
+                               timeout=CLAUDE_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            if last:
+                raise RuntimeError(f'claude -p timed out after {CLAUDE_TIMEOUT}s, {attempts} times')
+            continue
+        if r.returncode != 0:
+            err = (r.stderr or r.stdout or '').strip() or '(no output)'
+            if last:
+                raise RuntimeError(f'claude -p failed (exit {r.returncode}): {err}')
+            time.sleep(5 * (attempt + 1))
+            continue
+        text = re.sub(r'^```[a-z]*\n?|\n?```$', '', r.stdout.strip()).strip()
+        try:
+            sel = json.loads(text)
+        except json.JSONDecodeError:
+            if last:
+                raise RuntimeError(f'claude -p returned invalid JSON: {text[:200]!r}')
+            continue
+        valid_ids = {f['id'] for f in pool}
+        sel['ids'] = [i for i in sel.get('ids', []) if i in valid_ids][:4]
+        min_ids = 2 if APPLES_TO_APPLES_ONLY else 3
+        if len(sel['ids']) >= min_ids:
+            by_id = {f['id']: f for f in pool}
+            picks = [by_id[i] for i in sel['ids']]
+            veins = {f['vein'] for f in picks}
+            pairs = {f.get('pair') for f in picks}
+            if len(veins) == 1 and len(pairs) == 1:
+                fixed = FIXED_OPENERS.get((next(iter(veins)), next(iter(pairs))))
+                if fixed:
+                    sel['opener'] = fixed
+            return sel
+        if last:
+            raise RuntimeError(f'claude -p picked too few valid ids: {sel.get("ids")}')
+
+    raise RuntimeError('select() exhausted retries without a valid pick')
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__.split('\n')[1])
+    ap.add_argument('--dry-run', action='store_true', help='harvest + select + print, no side effects')
+    ap.add_argument('--source', choices=sorted(harvest.HARVESTERS), help='one vein only')
+    args = ap.parse_args()
+
+    pool, errors = build_pool(args.source)
+    if errors:
+        print(f'{len(errors)} source(s) failed: {list(errors)}', file=sys.stderr)
+    if not pool:
+        sys.exit('No facts harvested; nothing to select from.')
+
+    state_path = HERE / 'london_index_state.json'
+    state = json.loads(state_path.read_text()) if state_path.exists() else {}
+
+    sel = select(pool, state)
+    by_id = {f['id']: f for f in pool}
+    print(f"Opener: {sel['opener']['emoji']} {sel['opener']['text']}".strip())
+    for i in sel['ids']:
+        f = by_id[i]
+        print(f"  [{f['vein']}] {f['label']}: {f['value']}")
+    if not args.dry_run:
+        state['recent_ids'] = (state.get('recent_ids', []) + sel['ids'])[-RECENT_IDS_KEEP:]
+        state_path.write_text(json.dumps(state, indent=2))
+
+
+if __name__ == '__main__':
+    main()

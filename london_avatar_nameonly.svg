@@ -1,0 +1,59 @@
+<svg viewBox="0 0 400 400" width="400" height="400" xmlns="http://www.w3.org/2000/svg">
+  <!-- London Index avatar, v9: the Underground roundel, not Big Ben.
+       Four attempts at a tower silhouette never landed - it's real
+       architecture, and a flat icon of it either reads as generic or as
+       nothing recognisable at all. The roundel is the actual answer: it's
+       the single most-recognised London symbol there is, unambiguous even
+       to people who've never seen the real Elizabeth Tower, and it already
+       IS a ring plus a bar - which is exactly this avatar's own shape
+       (cream ring, one bold cream mark). The ring is the existing 40-digit
+       data ribbon, now doing double duty as the roundel's circle; the bar
+       crossing it carries the name directly, the way a real roundel
+       carries a station name, so there's no more ambiguity about what city
+       this is. Navy #00247d, cream #f5f0e6, same pair as before. -->
+  <rect width="400" height="400" fill="#f5f0e6"/>
+  <g fill="#00247d" font-family="'Helvetica Neue',Arial,sans-serif" font-weight="600" font-size="34" text-anchor="middle" dominant-baseline="central">
+    <text x="200" y="50" transform="rotate(0 200 200)">1</text>
+    <text x="200" y="50" transform="rotate(9 200 200)">0</text>
+    <text x="200" y="50" transform="rotate(18 200 200)">1</text>
+    <text x="200" y="50" transform="rotate(27 200 200)">1</text>
+    <text x="200" y="50" transform="rotate(36 200 200)">0</text>
+    <text x="200" y="50" transform="rotate(45 200 200)">0</text>
+    <text x="200" y="50" transform="rotate(54 200 200)">0</text>
+    <text x="200" y="50" transform="rotate(63 200 200)">1</text>
+    <!-- 72/81/90/99/108 skipped: this is the arc the bar crosses at
+         radius 150. At font-size 34 a digit here would have its glyph
+         clipped by the bar's edge rather than sitting cleanly behind it,
+         so the gap is left empty instead - same idea as the real roundel,
+         where the ring is simply absent under the bar. -->
+    <text x="200" y="50" transform="rotate(117 200 200)">0</text>
+    <text x="200" y="50" transform="rotate(126 200 200)">0</text>
+    <text x="200" y="50" transform="rotate(135 200 200)">1</text>
+    <text x="200" y="50" transform="rotate(144 200 200)">1</text>
+    <text x="200" y="50" transform="rotate(153 200 200)">1</text>
+    <text x="200" y="50" transform="rotate(162 200 200)">0</text>
+    <text x="200" y="50" transform="rotate(171 200 200)">1</text>
+    <text x="200" y="50" transform="rotate(180 200 200)">0</text>
+    <text x="200" y="50" transform="rotate(189 200 200)">0</text>
+    <text x="200" y="50" transform="rotate(198 200 200)">1</text>
+    <text x="200" y="50" transform="rotate(207 200 200)">1</text>
+    <text x="200" y="50" transform="rotate(216 200 200)">0</text>
+    <text x="200" y="50" transform="rotate(225 200 200)">0</text>
+    <text x="200" y="50" transform="rotate(234 200 200)">1</text>
+    <text x="200" y="50" transform="rotate(243 200 200)">0</text>
+    <!-- 252/261/270/279/288 skipped, same reason as the mirrored gap above -->
+    <text x="200" y="50" transform="rotate(297 200 200)">0</text>
+    <text x="200" y="50" transform="rotate(306 200 200)">1</text>
+    <text x="200" y="50" transform="rotate(315 200 200)">0</text>
+    <text x="200" y="50" transform="rotate(324 200 200)">1</text>
+    <text x="200" y="50" transform="rotate(333 200 200)">1</text>
+    <text x="200" y="50" transform="rotate(342 200 200)">0</text>
+    <text x="200" y="50" transform="rotate(351 200 200)">1</text>
+  </g>
+
+  <!-- The roundel's bar: extends past the ring's own edge on both sides,
+       same as the real thing, which is what makes the shape read as a
+       roundel rather than just a circle with a stripe through it. -->
+  <rect x="14" y="173" width="372" height="54" fill="#00247d" />
+  <text x="200" y="200" fill="#f5f0e6" font-family="'Helvetica Neue',Arial,sans-serif" font-weight="800" font-size="44" letter-spacing="3" text-anchor="middle" dominant-baseline="central">LONDON</text>
+</svg>
