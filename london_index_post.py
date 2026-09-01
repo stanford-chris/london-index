@@ -7,10 +7,9 @@ pipeline plan for what this deliberately does NOT do yet (cross-vein
 collisions, spotlight cards, rotation/cooldown/vein-floor/repeat-guard,
 label-accuracy audit, bilingual threads) and why.
 
-Posts a 2-post thread: the card image (caption is the hashtags only, so the
-image stays visually first), then a reply with the clickable source
-credit(s). Falls back to a plaintext post if rendering fails, so a post
-always goes out.
+Posts a 2-post thread: the card image (no caption text, so the image stays
+visually first), then a reply with the clickable source credit(s). Falls
+back to a plaintext post if rendering fails, so a post always goes out.
 
 Usage:
     python3 london_index_post.py --dry-run      # harvest, select, compose, render; print; no post
@@ -55,13 +54,6 @@ def write_json_atomic(path, data, **dumps_kwargs):
     tmp = path.with_name(path.name + '.tmp')
     tmp.write_text(json.dumps(data, **dumps_kwargs))
     tmp.replace(path)
-
-
-def tag_caption():
-    return ' '.join(f'#{t}' for t in TAGS_FALLBACK)
-
-
-TAGS_FALLBACK = ['LondonIndex']
 
 
 def log_card(c, post_uri, handle, fallback):
@@ -152,7 +144,7 @@ def main():
         if c['footnote']:
             alt += f"\n({c['footnote']})"
         ar = models.AppBskyEmbedDefs.AspectRatio(width=size[0], height=size[1])
-        p1 = bsky.send_image(text=tag_caption(), image=image_bytes, image_alt=alt,
+        p1 = bsky.send_image(text='', image=image_bytes, image_alt=alt,
                              langs=['en'], image_aspect_ratio=ar)
         posted_uri = p1.uri
         root_ref = models.create_strong_ref(p1)
@@ -178,7 +170,7 @@ def main():
     else:
         body = f"{c['opener']['text']}\n" + '\n'.join(
             f"{l['label']}: {l['value']}" for l in c['lines'])
-        body += f"\nSource: {c['source_text']}\n{tag_caption()}"
+        body += f"\nSource: {c['source_text']}"
         if len(body) > MAX_POST_CHARS:
             sys.exit(f'Plaintext-fallback post too long ({len(body)} chars, max {MAX_POST_CHARS}).')
         p1 = bsky.send_post(text=body, langs=['en'])

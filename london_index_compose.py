@@ -22,8 +22,6 @@ LONDON_TZ = timezone(timedelta(hours=1))  # BST; fine for a first pass, no DST h
 MAX_LINES = 4
 MAX_FOOTNOTE_CHARS = 140
 
-TAGS = ['LondonIndex']
-
 
 def _readable_period(p):
     """Turn a fact's raw `period` string into prose: "2026-06" -> "June
@@ -159,7 +157,6 @@ def compose(sel, pool):
         'sources': sources,
         'source_text': source_text,
         'period_credit': period_credit,
-        'tags': TAGS,
         'primary_vein': picks[0]['vein'],
         'veins': sorted({f['vein'] for f in picks}),
     }
