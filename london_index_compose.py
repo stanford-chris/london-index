@@ -65,10 +65,26 @@ def _is_single_day(picks):
         return False
 
 
+def _is_period_aggregate(picks):
+    """True if every pick shares one non-live, non-single-day period — a
+    month or year aggregate, crime-by-month and cycle-hire totals being the
+    current examples. Callers must check _is_live and _is_single_day first;
+    this deliberately returns False for either, so the three stay mutually
+    exclusive the same way _is_live and _is_single_day already are. A card
+    whose picks DISAGREE on their period (a mixed multi-vein card, e.g. TfL
+    bikes' live reading next to a dated cycle-hire total) is not an
+    aggregate of one period and returns False here too — see
+    _period_credit's own docstring for why a mixed period is credited on
+    the source line instead of claimed as a single dateline."""
+    periods = {f.get('period') for f in picks}
+    return len(periods) == 1 and bool(next(iter(periods))) and not (
+        _is_live(picks) or _is_single_day(picks))
+
+
 def _period_credit(picks):
     """The real calendar period the picks cover, worded for the source
-    credit line (e.g. "data.police.uk, June 2026") — never shown bare on
-    the card itself, and never as today's date next to it.
+    credit line (e.g. "data.police.uk, June 2026; 31 July 2026") — never
+    shown bare on the card itself, and never as today's date next to it.
 
     Suppressed entirely when ANY pick on the card is live (_is_live), even
     though a dated pick sitting alongside it still has a real period.
@@ -80,10 +96,14 @@ def _period_credit(picks):
     one source out of several on one shared line, so a mixed card shows
     none at all rather than a misattributed one; the live dateline already
     anchors that kind of card well enough on its own. Also suppressed for
-    _is_single_day, for the same reason: that date now rides the card's
-    own dateline instead (see _dateline), and showing it twice is
-    redundant in exactly the way a live "now" restated in the opener is."""
-    if _is_live(picks) or _is_single_day(picks):
+    _is_single_day and _is_period_aggregate, for the same reason: once
+    every pick shares one period — a single day or a month/year aggregate
+    — that date now rides the card's own dateline instead (see _dateline),
+    and showing it twice is redundant in exactly the way a live "now"
+    restated in the opener is. Only a genuinely MIXED set of periods still
+    reaches this line, since that's the one case _dateline can't state as
+    a single date without misattributing it."""
+    if _is_live(picks) or _is_single_day(picks) or _is_period_aggregate(picks):
         return ''
     periods = {f['period'] for f in picks if f.get('period')}
     if not periods:
@@ -95,15 +115,26 @@ def _period_credit(picks):
 def _dateline(picks):
     """The card's masthead date — shown for a genuinely live "right now"
     reading (today's real date and time, since "now" needs an actual
-    anchor nothing else on the card states), OR for a single dated day
-    every pick shares (_is_single_day - that exact day, not today's date,
-    since these figures are from a specific past day, not from now).
+    anchor nothing else on the card states), for a single dated day every
+    pick shares (_is_single_day - that exact day, not today's date, since
+    these figures are from a specific past day, not from now), OR for a
+    month/year aggregate every pick shares (_is_period_aggregate - the real
+    period itself, "June 2026", never today's date).
 
-    A card built entirely from PERIOD-aggregate dated facts (crime by
-    month, cycle-hire totals) still gets NO dateline at all: showing
-    today's date next to June's crime figures would be an outright false
-    claim about when those numbers are from, and the real period rides the
-    source credit instead (see _period_credit)."""
+    That last case was added 2 September 2026, replacing a design that
+    deliberately gave these cards no dateline at all and put the period in
+    the opener instead ("Reported crimes in June 2026") on the theory that
+    stating today's date next to June's figures would be a false claim.
+    That theory was right but the fix was wrong: nothing here ever proposed
+    showing TODAY's date on an aggregate card, only the real period, and a
+    real card ("Reported crimes in June 2026" as a title, "Most: Camden" /
+    "Fewest: Bromley" beneath it) showed the actual cost — the period
+    crowded the title instead of sitting under it. So the period now rides
+    the dateline, matching the single-day and live cases exactly, and the
+    opener drops it (see SELECT_PROMPT). A card whose picks disagree on
+    their period (_is_period_aggregate is False for those) still gets no
+    dateline, and the mixed period still rides the source credit instead —
+    see _period_credit."""
     if _is_live(picks):
         now = datetime.now(LONDON_TZ)
         ampm = 'a.m.' if now.hour < 12 else 'p.m.'
@@ -111,6 +142,9 @@ def _dateline(picks):
     if _is_single_day(picks):
         p = next(iter({f['period'] for f in picks}))
         return datetime.strptime(p, '%Y-%m-%d').strftime('%-d %B %Y')
+    if _is_period_aggregate(picks):
+        p = next(iter({f['period'] for f in picks}))
+        return _readable_period(p)
     return ''
 
 

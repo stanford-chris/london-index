@@ -99,14 +99,16 @@ _VEIN_RULE_SINGLE = """- SINGLE VEIN ONLY, for now. Pick 2 to 4 facts from ONE v
   building a card around one whole PAIR/group — that near-tie, wide gap or
   ranking IS the joke, and it is a real fact about the data, not a framing
   choice.
-  - "_heat": the opener MUST say so in plain words (e.g. "Neck and neck",
-    "Tied for the moment", "Dead heat") rather than a generic description of
-    the vein alone (e.g. "Tube station crowding") — the tie is the entire
-    reason these two were picked out of a much larger sampled set, and
-    without the opener stating it, nothing on the card tells a reader that
-    what they're seeing is a coincidence rather than an editorial claim that
-    these two particular entries matter more than the others.
-  - "_gap" and "_top" do not need that: each fact's own label already says
+  - "_heat": do NOT call out the tie explicitly in the opener (no "Neck and
+    neck", "Tied for the moment", "Dead heat", or similar) — reversed
+    1 September 2026 after Chris flagged it directly on a live post
+    ("Station usage, neck and neck" over Ruislip Gardens 825,357 vs
+    Upminster Bridge 825,358): once two near-identical numbers sit side by
+    side on the card, the coincidence is obvious on its own, and naming it
+    in words on top of that is a redundant characterization, not
+    information. Use a plain description of the vein instead, exactly as
+    for "_gap"/"_top" below.
+  - "_gap" and "_top" do not need that either: each fact's own label already says
     what the contrast is (whatever Python wrote it as — e.g. "Most above
     normal"/"Most below normal", never invent a punchier synonym like
     "Busiest"/"Quietest" the label doesn't say, since for some veins that
@@ -187,30 +189,37 @@ Rules:
   Prefer the shortest phrasing that still reads naturally; do not pad it out.
 - NEVER say "this month" or "this week" or similar relative-to-today
   phrasing. Some sources lag today by weeks or months (a police fact's
-  `period` might be "2026-06" while today is in August) — the card carries
-  NO date near the opener for this reason, so a relative phrase would be an
-  outright false claim about when the figures are from. If the picks share
-  a `period`, name the ACTUAL period INCLUDING THE YEAR (e.g. "2026-06" ->
-  "Reported crimes in June 2026", never the bare "in June") — the card's
-  image alone must never be ambiguous about the year if it is ever shared or
-  screenshotted without its reply, which is the only other place a date
-  might otherwise appear. For a live "right now" reading, do NOT add
-  "now"/"right now"/", now" to the opener — the card's own timestamp
-  ("29 August at 12:42 p.m.") already says so, and repeating it in the
-  opener too is redundant, not merely harmless. The same applies when
-  every pick shares a full calendar date (a single day, not a month or
-  year - vein "daily_footfall" is the one that does this): the card gets
-  its own dateline for that exact day, so the opener must NOT also name
-  the date ("Network footfall, 22 August 2026" repeats what the dateline
-  already states) — just describe what's being measured.
+  `period` might be "2026-06" while today is in August) — a relative
+  phrase would be an outright false claim about when the figures are from.
+  If every pick shares one `period` — a single calendar day, or a
+  month/year aggregate like reported crime or cycle-hire totals — the card
+  gets its own dateline stating the ACTUAL period INCLUDING THE YEAR
+  (compose() builds this from the picks' own `period`, not you), so the
+  opener must NOT also name it: just describe what's being measured, the
+  same way vein "daily_footfall" already does ("Network footfall" alone,
+  never "Network footfall, 22 August 2026", which repeats what the
+  dateline states). This covers reported-crime facts too, added
+  2 September 2026 after a real card's title read "Reported crimes in
+  June 2026" — crowded, because the card had no dateline for a month
+  aggregate at the time and the date had nowhere else to go. Say
+  "Reported crime" now, with no date, and let the dateline carry "June
+  2026" beneath it. Only when the picks genuinely DISAGREE on their period
+  (a mixed card spanning more than one vein with different periods) does
+  the card fall back to no dateline at all, and only then must the opener
+  still name the actual period itself, so the card is never
+  date-ambiguous if shared or screenshotted alone. For a live "right now"
+  reading, do NOT add "now"/"right now"/", now" to the opener — the
+  card's own timestamp ("29 August at 12:42 p.m.") already says so, and
+  repeating it in the opener too is redundant, not merely harmless.
 - The individual line labels do NOT repeat what the opener already states —
   a label like "Within a mile of central London" or "Most: Camden" assumes
   the opener has already said what is being measured. So when every pick
   shares one vein, the opener must be PRECISE about what that is, not just
   short: for reported-crime facts (vein "police" or "police_boroughs"), say
-  "Reported crimes in June 2026" (using the real period, year included) or
-  similar, never a vaguer "Crime" alone — the reader has no other way to know these are
-  police-recorded reports, not verified or convicted crimes.
+  "Reported crime" or similar (see the dateline rule above — no date in
+  this line), never a vaguer "Crime" alone — the reader has no other way
+  to know these are police-recorded reports, not verified or convicted
+  crimes.
 - For vein "daily_footfall", NEVER say "Tube" in the opener — this vein
   spans the whole network (Underground, Overground, DLR, Elizabeth line),
   not Underground alone, and "Tube" specifically means Underground to a
@@ -256,6 +265,13 @@ FIXED_OPENERS = {
     # fixed openers the same day, Chris's own exact wording.
     ('daily_footfall', 'footfall_gap'): {'emoji': '🚇', 'text': 'Transport for London footfall'},
     ('daily_footfall', 'footfall_top'): {'emoji': '🚇', 'text': 'Transport for London: Busiest stations'},
+    # Added 2 September 2026, alongside the dateline fix in compose.py's
+    # _dateline(): this shape's opener used to carry the period itself
+    # ("Reported crimes in June 2026"), which is now the card's dateline
+    # instead (see SELECT_PROMPT). Fixed rather than left to free text for
+    # the same reliability reason as the two pairs above — Chris's own
+    # exact wording, seen on the real card that prompted the change.
+    ('police_boroughs', 'police_gap'): {'emoji': '🚓', 'text': 'Reported crime'},
 }
 
 
