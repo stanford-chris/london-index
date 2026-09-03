@@ -272,6 +272,18 @@ FIXED_OPENERS = {
     # the same reliability reason as the two pairs above — Chris's own
     # exact wording, seen on the real card that prompted the change.
     ('police_boroughs', 'police_gap'): {'emoji': '🚓', 'text': 'Reported crime'},
+    # Added 3 September 2026, after a real card's opener read the generic
+    # "Station usage" — accurate but not the claim the four ranked numbers
+    # underneath it are actually making. Unlike daily_footfall, this vein
+    # is filtered to Mode == 'LU' only (see harvest_station_usage), so
+    # "Tube" is a true claim about which lines are covered, not the
+    # overclaim it would be for daily_footfall's multi-mode figures. No
+    # year in the text: these facts all share one `period` (the count
+    # year), so compose()'s _dateline() already renders it beneath the
+    # opener via _is_period_aggregate — repeating it here would be the
+    # same redundancy the SELECT_PROMPT rule against restating the period
+    # already forbids for every other fixed opener above.
+    ('station_usage', 'usage_top'): {'emoji': '🚇', 'text': 'Busiest Tube stations'},
 }
 
 
