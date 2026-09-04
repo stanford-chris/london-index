@@ -5,3 +5,6 @@ card.png
 london_index_state.json
 card_history.jsonl
 scratch/
+weather_card.png
+.weather.lock
+weather_history.jsonl

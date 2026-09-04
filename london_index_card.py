@@ -25,6 +25,19 @@ Public API:
         opener:   {"emoji": "🚇" or "", "text": "London on the move right now"}
         lines:    [{"label": "Busiest station: Euston",
                     "value": "11% of typical"}, ...]
+                  {"emoji": "🔺"} adds a leading emoji to that one row — the
+                  index card's own veins never set this (the opener carries
+                  the card's only emoji there, deliberately, per the design
+                  note below), but a data-dense card like the weather one
+                  uses a per-row icon the way Seoul Index's own renderer
+                  does, and this is that same mechanism copied across.
+                  {"value_lead": "🌙 Sunset "} prints that text in REGULAR
+                  weight immediately before the (still bold) value, and
+                  {"no_leader": True} drops the dotted leader for that row —
+                  both matching seoul_index_card.py exactly, for a row like
+                  sunrise/sunset that packs a second label+value pair into
+                  the value slot rather than stating one figure for its own
+                  label.
         footnote: a caveat on the numbers, or "" for none
         dateline: the date this card was posted, shown under the title — a
                   bare date, or "29 August at 11:53" when any of the picks
@@ -89,9 +102,25 @@ def _esc(s):
 def _line_html(line):
     if 'subhead' in line:
         return f'<div class="sub">{_esc(line["subhead"])}</div>'
-    return (f'<div class="line"><span class="label">{_esc(line["label"])}</span>'
-            f'<span class="leader"></span>'
-            f'<span class="value">{_esc(line["value"])}</span></div>')
+    emoji = line.get('emoji') or ''
+    lead = f'{_esc(emoji)} ' if emoji else ''
+    lab = _esc(line['label'])
+    emph = line.get('emph')
+    if emph:
+        # Bolds just the run named by 'emph' inside an otherwise-regular
+        # label — e.g. the time inside "Sunrise 6:05 a.m." — same rule as
+        # seoul_index_card.py's _row_html. A miss is silently fine: the run
+        # is matched as a plain substring on the escaped label, and if it
+        # is not there the label just renders unbolded.
+        run = _esc(emph)
+        if run:
+            lab = lab.replace(run, f'<b>{run}</b>', 1)
+    val_lead = line.get('value_lead') or ''
+    val_lead_html = f'<span class="valreg">{_esc(val_lead)}</span>' if val_lead else ''
+    leader_class = 'leader plain' if line.get('no_leader') else 'leader'
+    return (f'<div class="line"><span class="label">{lead}{lab}</span>'
+            f'<span class="{leader_class}"></span>'
+            f'<span class="value">{val_lead_html}{_esc(line["value"])}</span></div>')
 
 
 HANDLE_WATERMARK = '@london-index.bsky.social'
@@ -117,7 +146,9 @@ def _build_html(opener, lines, footnote='', dateline=''):
   .line {{ display:flex; align-items:baseline; gap:14px; font-size:22px; margin-bottom:14px; }}
   .label {{ flex:0 1 auto; }}
   .leader {{ flex:1 0 24px; border-bottom:2px dotted {INK}66; margin:0 2px; }}
+  .leader.plain {{ border-bottom:none; }}
   .value {{ font-weight:700; white-space:nowrap; }}
+  .value .valreg {{ font-weight:400; }}
   .sub {{ font-size:15px; font-weight:700; letter-spacing:.02em; color:{INK}; margin:22px 0 10px; }}
   .footer {{ margin-top:24px; }}
   .footnote {{ font-size:15px; color:{INK}99; margin-bottom:6px; }}
