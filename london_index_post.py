@@ -183,4 +183,12 @@ def main():
 
 
 if __name__ == '__main__':
+    # Gated on __name__, not installed at module level — this file is
+    # imported by test suites, and mutating subprocess.run at import time
+    # would leak into every other test sharing the process. See
+    # api_call_log.py's own docstring. Covers london_index_harvest.py's
+    # own curl() too, since it's imported by this file and subprocess.run
+    # is one shared module-level attribute for the whole process.
+    import api_call_log
+    api_call_log.install('london_index_post.py')
     main()
