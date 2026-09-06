@@ -501,3 +501,46 @@ today's times as final.
 - A `london_index_crowd_log.py` hourly crowding sampler was discussed (see
   "% of baseline" above) as the honest long-term fix for the unverifiable
   TfL baseline definition, but not built this session.
+- ✅ **Vein rotation (cooldown + starve-floor) built 6 September 2026**, in
+  `london_index_select.py`, ported from Seoul Index's own
+  `apply_cooldown()`/`promote_starved()`. Triggered by two real posts,
+  16 hours apart (bsky.app/.../3muppich4zm27, a daily_footfall card, and
+  .../3murf3zphbj2x, a station_usage card) read as the same "busiest
+  station" card twice: with `tfl_crowding` paused, `station_usage` and
+  `daily_footfall` alone were two-thirds of the preceding 15 posts, while
+  `tfl_bikes`, `flood`, `police` and `cycle_hires` led none of them. Until
+  this date the only anti-repeat guard was fact-id-level (`recent_ids`,
+  last 12) — this file's own Session 3 entry above notes that was a
+  deliberate simplification "London Index has no posting history yet to
+  build [rotation] against"; 20 real posts later, it did.
+  - `BUSIEST_STATION_VEINS = {station_usage, daily_footfall}` share ONE
+    2-day cooldown, not two separate ones — they're different data sources
+    answering the same reader-facing question, and a per-vein cooldown
+    alone would have let the bot alternate between them and still post a
+    "busiest station" card daily.
+  - Every other vein gets `promote_starved()`: 2 days unstamped and the
+    pool narrows to that vein alone. `flood` stays out of rotation by
+    falling under `STARVE_MIN_FACTS=2` (it only ever harvests one fact,
+    see `harvest_flood()`) rather than by a hardcoded exception — a real,
+    separate limitation, not something this change fixes. Extending
+    `harvest_flood()` with a second comparable figure (e.g. warnings vs.
+    alerts, both counts) would be the honest way to bring it back in.
+  - Chris's call, this date: build the full two-part machinery (matching
+    Seoul Index) rather than the narrower single-purpose fix, deliberately
+    more than London Index's current 10-vein roster strictly needs, so
+    there's headroom to grow into.
+  - `london_index_state.json` (gitignored, so untracked by git) migrated
+    once: `vein_last_at` backfilled from `card_history.jsonl`'s real post
+    timestamps, converting each London-local `at` string to UTC. Without
+    this the very first live run after deploy would have read every vein
+    as "never posted" and picked among them by an arbitrary (alphabetical)
+    tie-break rather than honouring the real history.
+  - Covered by `test_london_index_select.py` (16 tests): both refusal
+    cases per guard (a malformed/missing timestamp fires no cooldown or
+    promotion; a cooldown that would empty the pool is abandoned), the
+    shared-cooldown-group behaviour, the starve floor's `flood` exclusion,
+    and one end-to-end test confirming cooled/starved veins never reach
+    the `claude -p` prompt at all (subprocess mocked, no network). Verified
+    by mutation: removing the pool-floor guard, the `STARVE_MIN_FACTS`
+    check, and the tie-break's third sort key were each confirmed to fail
+    the suite and pass again on restore.

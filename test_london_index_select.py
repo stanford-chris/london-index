@@ -1,0 +1,194 @@
+"""Tests for the vein-rotation machinery in london_index_select.py:
+apply_cooldown(), promote_starved() and update_state().
+
+Ported from Seoul Index's own apply_cooldown()/promote_starved(), built
+6 September 2026 after 20 real posts showed exactly the failure these exist
+to prevent: station_usage and daily_footfall (two data sources answering
+the same "which station is busiest" question) were two-thirds of every
+post once tfl_crowding was paused, while tfl_bikes, flood, police and
+cycle_hires led none of them.
+
+The refusal-to-fire tests are the point, same as everywhere else in this
+codebase: a cooldown or a starve-promotion that fires on a malformed
+timestamp, or that empties the pool and skips a post, is worse than no
+guard at all. No network, no claude -p call — subprocess.run is mocked in
+the one test that exercises select()'s wiring end to end.
+"""
+import sys
+import unittest
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from unittest.mock import patch
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import london_index_select as S
+
+
+def mkfact(vein, n, pair=None):
+    """n facts for one vein, shaped enough for these functions (they only
+    ever look at 'id', 'vein' and, for select()'s own wiring, 'pair')."""
+    return [{'id': f'{vein}:{i}', 'vein': vein, 'label': f'{vein} {i}',
+             'value': str(i), 'pair': pair} for i in range(n)]
+
+
+def iso(days_ago=0, hours_ago=0):
+    return (datetime.now(timezone.utc)
+            - timedelta(days=days_ago, hours=hours_ago)).isoformat()
+
+
+class ApplyCooldown(unittest.TestCase):
+    def setUp(self):
+        self.pool = (mkfact('station_usage', 4) + mkfact('daily_footfall', 2)
+                     + mkfact('river_levels', 2))
+
+    def test_no_stamp_at_all_no_cooldown(self):
+        out = S.apply_cooldown(self.pool, {}, S.BUSIEST_STATION_VEINS,
+                               S.BUSIEST_STATION_COOLDOWN_DAYS, 'test')
+        self.assertEqual(out, self.pool)
+
+    def test_recent_stamp_on_either_vein_drops_the_whole_group(self):
+        state = {'vein_last_at': {'daily_footfall': iso(hours_ago=1)}}
+        out = S.apply_cooldown(self.pool, state, S.BUSIEST_STATION_VEINS,
+                               S.BUSIEST_STATION_COOLDOWN_DAYS, 'test')
+        veins = {f['vein'] for f in out}
+        self.assertNotIn('station_usage', veins)
+        self.assertNotIn('daily_footfall', veins)
+        self.assertIn('river_levels', veins)
+
+    def test_stamp_older_than_the_window_does_not_cool_down(self):
+        state = {'vein_last_at': {'station_usage': iso(days_ago=3)}}
+        out = S.apply_cooldown(self.pool, state, S.BUSIEST_STATION_VEINS,
+                               S.BUSIEST_STATION_COOLDOWN_DAYS, 'test')
+        self.assertEqual(out, self.pool)
+
+    def test_malformed_stamp_is_ignored_not_raised(self):
+        state = {'vein_last_at': {'station_usage': 'not-a-timestamp'}}
+        out = S.apply_cooldown(self.pool, state, S.BUSIEST_STATION_VEINS,
+                               S.BUSIEST_STATION_COOLDOWN_DAYS, 'test')
+        self.assertEqual(out, self.pool)
+
+    def test_abandoned_rather_than_emptying_the_pool(self):
+        # Nothing left outside the cooled group with >= 2 facts of its own.
+        pool = mkfact('station_usage', 4) + mkfact('daily_footfall', 2)
+        state = {'vein_last_at': {'station_usage': iso(hours_ago=1)}}
+        out = S.apply_cooldown(pool, state, S.BUSIEST_STATION_VEINS,
+                               S.BUSIEST_STATION_COOLDOWN_DAYS, 'test')
+        self.assertEqual(out, pool)
+
+
+class PromoteStarved(unittest.TestCase):
+    def test_never_posted_vein_is_promoted_over_a_recently_led_one(self):
+        pool = mkfact('tfl_bikes', 3) + mkfact('river_levels', 2)
+        state = {'vein_last_at': {'river_levels': iso(hours_ago=1)}}
+        out, promoted = S.promote_starved(pool, state)
+        self.assertEqual(promoted, 'tfl_bikes')
+        self.assertTrue(all(f['vein'] == 'tfl_bikes' for f in out))
+
+    def test_below_starve_min_facts_is_never_promoted(self):
+        # flood's real shape: exactly one fact, permanently.
+        pool = mkfact('flood', 1) + mkfact('river_levels', 2)
+        state = {'vein_last_at': {'river_levels': iso(hours_ago=1)}}
+        out, promoted = S.promote_starved(pool, state)
+        self.assertIsNone(promoted)
+        self.assertEqual(out, pool)
+
+    def test_nothing_starved_when_everything_posted_recently(self):
+        pool = mkfact('tfl_bikes', 3) + mkfact('river_levels', 2)
+        state = {'vein_last_at': {'tfl_bikes': iso(hours_ago=1),
+                                   'river_levels': iso(hours_ago=2)}}
+        out, promoted = S.promote_starved(pool, state)
+        self.assertIsNone(promoted)
+        self.assertEqual(out, pool)
+
+    def test_longest_waiting_vein_wins(self):
+        pool = mkfact('tfl_bikes', 3) + mkfact('river_levels', 2)
+        state = {'vein_last_at': {'tfl_bikes': iso(days_ago=3),
+                                   'river_levels': iso(days_ago=5)}}
+        out, promoted = S.promote_starved(pool, state)
+        self.assertEqual(promoted, 'river_levels')
+
+    def test_tie_between_never_posted_veins_is_deterministic(self):
+        pool = mkfact('tfl_bikes', 3) + mkfact('river_levels', 2)
+        out, promoted = S.promote_starved(pool, {})
+        # Both never posted; alphabetical tie-break, not dict order.
+        self.assertEqual(promoted, 'river_levels')
+
+    def test_malformed_stamp_treated_as_never_posted(self):
+        pool = mkfact('tfl_bikes', 3) + mkfact('river_levels', 2)
+        state = {'vein_last_at': {'tfl_bikes': iso(hours_ago=1),
+                                   'river_levels': 'garbage'}}
+        out, promoted = S.promote_starved(pool, state)
+        self.assertEqual(promoted, 'river_levels')
+
+
+class UpdateState(unittest.TestCase):
+    def test_records_ids_and_stamps_the_vein(self):
+        state = {}
+        sel = {'ids': ['a:1', 'a:2'], 'vein': 'river_levels'}
+        state = S.update_state(state, sel)
+        self.assertEqual(state['recent_ids'], ['a:1', 'a:2'])
+        self.assertIn('river_levels', state['vein_last_at'])
+
+    def test_no_vein_key_stamps_nothing(self):
+        state = {}
+        sel = {'ids': ['a:1']}
+        state = S.update_state(state, sel)
+        self.assertEqual(state['recent_ids'], ['a:1'])
+        self.assertNotIn('vein_last_at', state)
+
+    def test_recent_ids_trimmed_to_keep(self):
+        state = {'recent_ids': [f'x:{i}' for i in range(S.RECENT_IDS_KEEP)]}
+        sel = {'ids': ['new:1', 'new:2']}
+        state = S.update_state(state, sel)
+        self.assertEqual(len(state['recent_ids']), S.RECENT_IDS_KEEP)
+        self.assertEqual(state['recent_ids'][-2:], ['new:1', 'new:2'])
+
+    def test_stamping_a_second_vein_does_not_clobber_the_first(self):
+        state = {}
+        state = S.update_state(state, {'ids': ['a:1'], 'vein': 'tfl_bikes'})
+        state = S.update_state(state, {'ids': ['b:1'], 'vein': 'river_levels'})
+        self.assertIn('tfl_bikes', state['vein_last_at'])
+        self.assertIn('river_levels', state['vein_last_at'])
+
+
+class SelectWiring(unittest.TestCase):
+    """Confirms select() actually applies both guards before ever building
+    the prompt — not just that the guard functions work in isolation."""
+
+    def _fake_claude(self, ids, opener_text='Test opener'):
+        class Result:
+            returncode = 0
+            stdout = (f'{{"opener": {{"emoji": "", "text": "{opener_text}"}}, '
+                      f'"ids": {ids!r}}}').replace("'", '"')
+            stderr = ''
+        return Result()
+
+    def test_cooled_and_starved_veins_never_reach_the_prompt(self):
+        pool = (mkfact('station_usage', 4) + mkfact('daily_footfall', 2)
+                + mkfact('tfl_bikes', 3) + mkfact('river_levels', 2))
+        # station_usage/daily_footfall on cooldown; river_levels posted
+        # recently so it isn't force-promoted out from under tfl_bikes;
+        # tfl_bikes never posted, so it's the one legitimately starved.
+        state = {'vein_last_at': {
+            'station_usage': iso(hours_ago=1),
+            'river_levels': iso(hours_ago=1),
+        }}
+        captured = {}
+
+        def fake_run(cmd, **kwargs):
+            captured['prompt'] = cmd[-1]
+            return self._fake_claude(['tfl_bikes:0', 'tfl_bikes:1'])
+
+        with patch('subprocess.run', side_effect=fake_run):
+            sel = S.select(pool, state)
+
+        self.assertEqual(sel['vein'], 'tfl_bikes')
+        self.assertNotIn('station_usage:0', captured['prompt'])
+        self.assertNotIn('daily_footfall:0', captured['prompt'])
+        # promote_starved narrowed the pool to tfl_bikes alone, so
+        # river_levels shouldn't have reached the prompt either.
+        self.assertNotIn('river_levels:0', captured['prompt'])
+
+
+if __name__ == '__main__':
+    unittest.main()

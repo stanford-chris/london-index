@@ -4,8 +4,9 @@ Entry point for London Index (@london-index.bsky.social). Orchestrates the
 whole pipeline: harvest -> select (claude -p) -> compose -> render -> post,
 then logs the result. See SESSION_SUMMARY.md and the approved posting-
 pipeline plan for what this deliberately does NOT do yet (cross-vein
-collisions, spotlight cards, rotation/cooldown/vein-floor/repeat-guard,
-label-accuracy audit, bilingual threads) and why.
+collisions, spotlight cards, label-accuracy audit, bilingual threads) and
+why. Vein rotation (cooldown + starve-floor) shipped 6 September 2026 —
+see london_index_select.py's apply_cooldown()/promote_starved().
 
 Posts a 2-post thread: the card image (no caption text, so the image stays
 visually first), then a reply with the clickable source credit(s). Falls
@@ -127,7 +128,7 @@ def main():
             print(f'\n(dry run — wrote {out_path} at {size[0]}x{size[1]}, not posting)')
         else:
             print('\n(dry run — not posting)')
-        state['recent_ids'] = (state.get('recent_ids', []) + sel['ids'])[-select_mod.RECENT_IDS_KEEP:]
+        state = select_mod.update_state(state, sel)
         write_json_atomic(STATE, state, indent=2)
         return
 
@@ -177,7 +178,7 @@ def main():
         posted_uri = p1.uri
         print('\nPosted (plaintext fallback, render failed).')
 
-    state['recent_ids'] = (state.get('recent_ids', []) + sel['ids'])[-select_mod.RECENT_IDS_KEEP:]
+    state = select_mod.update_state(state, sel)
     write_json_atomic(STATE, state, indent=2)
     log_card(c, posted_uri, HANDLE, fallback)
 

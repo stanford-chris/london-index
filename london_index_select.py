@@ -8,10 +8,13 @@ every number — the selector only orders and words; it never emits a value,
 and compose() reuses the harvester's exact value string verbatim.
 
 Deliberately NOT built here (see the approved posting-pipeline plan):
-cross-vein collision detection, rotation/cooldown/vein-floor/repeat-guard.
-London Index has no posting history yet to build those against — the one
-thing kept from day one is a simple "don't pick the same fact id as last
-time" check via `state.json`'s `recent_ids`, nothing more elaborate.
+cross-vein collision detection. London Index had no posting history to
+build rotation/cooldown/vein-floor against when this file was first
+written — that changed 6 September 2026 (see apply_cooldown() and
+promote_starved() below, ported from Seoul Index once 20 real posts showed
+exactly the failure those exist to prevent: station_usage and
+daily_footfall were two-thirds of every post while four other veins led
+none).
 
 Public API:
     build_pool(source=None) -> list[dict]
@@ -21,12 +24,14 @@ Public API:
 """
 
 import argparse
+import collections
 import json
 import os
 import re
 import subprocess
 import sys
 import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import london_index_harvest as harvest
@@ -287,7 +292,149 @@ FIXED_OPENERS = {
 }
 
 
+# --- Vein rotation: cooldowns + starve-floor --------------------------
+# Ported from Seoul Index's apply_cooldown()/promote_starved() (same file,
+# same names, same mechanism) and simplified for London Index's much
+# smaller 10-vein roster at the same 4-posts-a-day cadence. Built
+# 6 September 2026 after two live posts, 16 hours apart
+# (bsky.app/.../3muppich4zm27 and .../3murf3zphbj2x — a daily_footfall and
+# a station_usage "busiest station" card), read to a follower as the same
+# card twice: with tfl_crowding paused, those two veins alone were
+# two-thirds of the preceding 15 posts, while tfl_bikes, flood, police and
+# cycle_hires led none of them. Chris's call: build the full two-part
+# machinery now, on purpose more than this vein count strictly needs, so
+# there's headroom to grow into rather than revisiting this at 20+ veins.
+
+# station_usage and daily_footfall are two different data sources
+# answering the same reader-facing question ("which station is busiest")
+# — one theme, not two — so they share a single cooldown: leading with
+# EITHER one holds BOTH out of the pool. A per-vein cooldown alone would
+# have let the bot alternate between them and still post a "busiest
+# station" card every single day.
+BUSIEST_STATION_VEINS = {'station_usage', 'daily_footfall'}
+BUSIEST_STATION_COOLDOWN_DAYS = 2
+
+# Every other vein gets the opposite guard: gone quiet for STARVE_DAYS and
+# the pool is narrowed to that vein alone, so the model can't pick around
+# it. STARVE_MIN_FACTS=2 matches select()'s own single-vein minimum — a
+# vein below it can never form a valid card at all. flood is excluded from
+# promotion this way without needing a hardcoded name (Seoul Index's
+# 'rush' needed one): harvest_flood() always returns exactly one fact, so
+# it never clears this floor and stays out of rotation until its harvester
+# grows a second, comparable figure — a real, separate limitation, not
+# something this change fixes.
+STARVE_MIN_FACTS = 2
+STARVE_DAYS = 2
+SEVERE_STARVE_DAYS = STARVE_DAYS * 2  # unused for now — see promote_starved()'s docstring
+
+
+def apply_cooldown(pool, state, veins, days, label):
+    """Drop `veins` from the pool if any of them led a post within the last
+    `days` days. The group form (a set, not just one vein) exists for
+    BUSIEST_STATION_VEINS, where the reader-facing repetition spans two
+    different data sources rather than one.
+
+    Two deliberate refusals to fire, both from Seoul Index's version: an
+    unreadable or missing timestamp holds no cooldown (never invent one
+    from a hand-edited or pre-migration state file), and a cooldown that
+    would leave nothing pickable — no remaining vein with at least 2 facts
+    — is abandoned rather than emptying the pool and skipping the post.
+    """
+    stamps = state.get('vein_last_at', {})
+    newest_age = None
+    for v in veins:
+        stamp = stamps.get(v)
+        if not stamp:
+            continue
+        try:
+            age = datetime.now(timezone.utc) - datetime.fromisoformat(stamp)
+        except (ValueError, TypeError):
+            continue
+        if newest_age is None or age < newest_age:
+            newest_age = age
+    if newest_age is None or newest_age >= timedelta(days=days):
+        return pool
+    cooled = [f for f in pool if f['vein'] not in veins]
+    remaining = collections.Counter(f['vein'] for f in cooled)
+    if not any(n >= 2 for n in remaining.values()):
+        return pool
+    hours = int(newest_age.total_seconds() // 3600)
+    print(f'{label} on cooldown ({hours}h of {days * 24}h) - '
+          f'{len(pool) - len(cooled)} fact(s) withheld.')
+    return cooled
+
+
+def promote_starved(pool, state):
+    """Give a long-unposted vein one card to itself.
+
+    Mirrors Seoul Index's promote_starved(), minus the never-posted/severe-
+    starve back-to-back override that file's own comment says is needed
+    only once the roster is big enough (26 veins there) that an even
+    rotation leaves most veins nominally starved most of the time. At 10
+    veins and STARVE_DAYS=2, that isn't London Index's situation yet — a
+    plain oldest-or-never-posted-first pick is enough, and SEVERE_STARVE_
+    DAYS is defined above only so a future widening of the roster has the
+    same escape hatch ready without re-deriving it.
+
+    Returns (pool, promoted_vein), with promoted_vein None when nothing is
+    promoted and the pool handed back untouched.
+    """
+    counts = collections.Counter(f['vein'] for f in pool)
+    seen = state.get('vein_last_at') or {}
+    now = datetime.now(timezone.utc)
+    starved = []
+    for vein, n in counts.items():
+        if n < STARVE_MIN_FACTS:
+            continue
+        stamp = seen.get(vein)
+        age = None
+        if stamp:
+            try:
+                age = now - datetime.fromisoformat(stamp)
+            except (ValueError, TypeError):
+                age = None
+        if age is None or age >= timedelta(days=STARVE_DAYS):
+            starved.append((age, vein, n))
+    if not starved:
+        return pool, None
+
+    # Never-posted first, then longest-waited first, then alphabetical —
+    # the last only to make ties (e.g. every vein "never posted" on the
+    # very first run after this shipped) deterministic rather than an
+    # accident of dict iteration order.
+    starved.sort(key=lambda t: (t[0] is not None,
+                                -(t[0].total_seconds() if t[0] else 0), t[1]))
+    age, vein, n = starved[0]
+    waited = 'never posted' if age is None else f'{age.days}d since last led'
+    others = ', '.join(v for _, v, _ in starved[1:]) or 'none'
+    print(f'Vein floor: promoting {vein} ({waited}); this card is built '
+          f'from its {n} facts alone. Also starved: {others}.')
+    return [f for f in pool if f['vein'] == vein], vein
+
+
+def update_state(state, sel):
+    """Record one pick into state: `recent_ids` (the existing fact-level
+    anti-repeat) and, when the pick is a single vein — the only shape
+    APPLES_TO_APPLES_ONLY currently allows — `vein_last_at` (read by
+    apply_cooldown() and promote_starved() above). A mixed-vein pick stamps
+    no vein, since there is no single vein to credit for it.
+
+    Shared by both save points in london_index_post.py (dry-run and live)
+    and by this file's own main(), so the two state fields can't drift out
+    of sync the way three separate inline updates risked.
+    """
+    state['recent_ids'] = (state.get('recent_ids', []) + sel['ids'])[-RECENT_IDS_KEEP:]
+    if sel.get('vein'):
+        vein_last_at = state.setdefault('vein_last_at', {})
+        vein_last_at[sel['vein']] = datetime.now(timezone.utc).isoformat()
+    return state
+
+
 def select(pool, state):
+    pool = apply_cooldown(pool, state, BUSIEST_STATION_VEINS,
+                          BUSIEST_STATION_COOLDOWN_DAYS, 'Busiest-station cards')
+    pool, _promoted = promote_starved(pool, state)
+
     avoid = state.get('recent_ids', [])[-RECENT_IDS_KEEP:]
     slim = [{'id': f['id'], 'vein': f['vein'], 'label': f['label'],
              'value': f['value'], 'period': f.get('period'),
@@ -331,8 +478,10 @@ def select(pool, state):
             picks = [by_id[i] for i in sel['ids']]
             veins = {f['vein'] for f in picks}
             pairs = {f.get('pair') for f in picks}
+            if len(veins) == 1:
+                sel['vein'] = next(iter(veins))
             if len(veins) == 1 and len(pairs) == 1:
-                fixed = FIXED_OPENERS.get((next(iter(veins)), next(iter(pairs))))
+                fixed = FIXED_OPENERS.get((sel['vein'], next(iter(pairs))))
                 if fixed:
                     sel['opener'] = fixed
             return sel
@@ -364,7 +513,7 @@ def main():
         f = by_id[i]
         print(f"  [{f['vein']}] {f['label']}: {f['value']}")
     if not args.dry_run:
-        state['recent_ids'] = (state.get('recent_ids', []) + sel['ids'])[-RECENT_IDS_KEEP:]
+        state = update_state(state, sel)
         state_path.write_text(json.dumps(state, indent=2))
 
 
