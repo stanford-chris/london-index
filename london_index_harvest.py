@@ -732,13 +732,26 @@ def harvest_cycle_hires():
         year_rows = [r for r in rows if r[1].year == latest_date.year]
         avg = sum(r[2] for r in year_rows) / len(year_rows)
         page_url = 'https://data.london.gov.uk/dataset/number-bicycle-hires'
+        # This pair mixes a day-level period (the count) with a year-level
+        # one (the average), so compose()'s _is_single_day/_is_period_aggregate
+        # both read it as "mixed" and give the card no dateline - and since
+        # 31 August 2026 the reply no longer restates a mixed period_credit
+        # either (post.py's own comment on that change names cycle_hires as
+        # a vein this would leave with no visible date at all). A
+        # context_note surfaces on the card's own footnote instead, the same
+        # route tfl_crowding uses, so the reader isn't left assuming this is
+        # today's count - the Datastore feed runs weeks behind, not days.
+        context_note = (
+            f'Count is for {latest_date.strftime("%-d %B %Y")}; average is '
+            f'{latest_date.year} to date')
         facts = [
             fact(f'{int(latest_count):,}', 'Santander Cycles hired',
                  'London Datastore (TfL daily cycle hires)', page_url,
-                 period=latest_date.strftime('%Y-%m-%d'), pair='cycle_gap'),
+                 period=latest_date.strftime('%Y-%m-%d'), pair='cycle_gap',
+                 context_note=context_note),
             fact(f'{int(avg):,}', 'Average daily hires',
                  'London Datastore (TfL daily cycle hires)', page_url, period=str(latest_date.year),
-                 pair='cycle_gap'),
+                 pair='cycle_gap', context_note=context_note),
         ]
         return facts, None
 
