@@ -312,7 +312,21 @@ FIXED_OPENERS = {
 # have let the bot alternate between them and still post a "busiest
 # station" card every single day.
 BUSIEST_STATION_VEINS = {'station_usage', 'daily_footfall'}
-BUSIEST_STATION_COOLDOWN_DAYS = 2
+# Raised 2 -> 4 on 8 September 2026: 2 days was not enough. station_usage is
+# ANNUAL data (TfL's Annual Station Counts, same shape as dcms_museums below)
+# so a repick past the cooldown reproduces the identical top-4 list every
+# time, and daily_footfall runs ~9 days behind TfL's own publication (see
+# london_index_harvest.py's docstring), so it can sit on the same lagged day
+# across a 2-day gap too. Three exact-repeat cards were found on the real
+# feed once bot_variety_check.py was pointed at this bot: "Busiest Tube
+# stations" (station_usage) 2d8h apart, "Transport for London: Busiest
+# stations" (daily_footfall) 2d8h apart, "Transport for London footfall"
+# (daily_footfall) 2d21h apart — every one of them just past the old 2-day
+# window. 4 days clears all three with margin, and matches
+# DCMS_MUSEUMS_COOLDOWN_DAYS below for the same reason: both veins are
+# static-or-near-static data where a short cooldown only delays the repeat
+# rather than preventing it.
+BUSIEST_STATION_COOLDOWN_DAYS = 4
 
 # Every other vein gets the opposite guard: gone quiet for STARVE_DAYS and
 # the pool is narrowed to that vein alone, so the model can't pick around
@@ -326,6 +340,22 @@ BUSIEST_STATION_COOLDOWN_DAYS = 2
 STARVE_MIN_FACTS = 2
 STARVE_DAYS = 2
 SEVERE_STARVE_DAYS = STARVE_DAYS * 2  # unused for now — see promote_starved()'s docstring
+
+# dcms_museums is DCMS's own annual release (next update not expected until
+# 2027, per the harvester's own docstring) — unlike every other vein here, a
+# repeat pick of the same PAIR reproduces a BYTE-IDENTICAL card, not just a
+# repeat of the same theme. Added 8 September 2026 after exactly that
+# happened: the museum_gap pair (British Museum / Sir John Soane's Museum /
+# all-London total) led a post on 5 September at 16:04 and again on 8
+# September at 16:04, with a third dcms_museums post (a different pair,
+# museum_heat) on 7 September in between — one vein, three times in four
+# days. It was never added to the busiest-station cooldown above, and
+# recent_ids (soft advisory only, 12 slots) had long aged past it by the
+# third post. Own cooldown group of one, same mechanism as
+# BUSIEST_STATION_VEINS; 4 days is chosen to exceed the 3-day gap that
+# produced the actual duplicate.
+DCMS_MUSEUMS_VEINS = {'dcms_museums'}
+DCMS_MUSEUMS_COOLDOWN_DAYS = 4
 
 
 def apply_cooldown(pool, state, veins, days, label):
@@ -433,6 +463,8 @@ def update_state(state, sel):
 def select(pool, state):
     pool = apply_cooldown(pool, state, BUSIEST_STATION_VEINS,
                           BUSIEST_STATION_COOLDOWN_DAYS, 'Busiest-station cards')
+    pool = apply_cooldown(pool, state, DCMS_MUSEUMS_VEINS,
+                          DCMS_MUSEUMS_COOLDOWN_DAYS, 'DCMS museums')
     pool, _promoted = promote_starved(pool, state)
 
     avoid = state.get('recent_ids', [])[-RECENT_IDS_KEEP:]

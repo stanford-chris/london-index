@@ -56,7 +56,8 @@ class ApplyCooldown(unittest.TestCase):
         self.assertIn('river_levels', veins)
 
     def test_stamp_older_than_the_window_does_not_cool_down(self):
-        state = {'vein_last_at': {'station_usage': iso(days_ago=3)}}
+        state = {'vein_last_at': {
+            'station_usage': iso(days_ago=S.BUSIEST_STATION_COOLDOWN_DAYS + 1)}}
         out = S.apply_cooldown(self.pool, state, S.BUSIEST_STATION_VEINS,
                                S.BUSIEST_STATION_COOLDOWN_DAYS, 'test')
         self.assertEqual(out, self.pool)
@@ -66,6 +67,22 @@ class ApplyCooldown(unittest.TestCase):
         out = S.apply_cooldown(self.pool, state, S.BUSIEST_STATION_VEINS,
                                S.BUSIEST_STATION_COOLDOWN_DAYS, 'test')
         self.assertEqual(out, self.pool)
+
+    def test_the_actual_incident_gaps_are_now_blocked(self):
+        # Real exact-repeat gaps found on the live feed once bot_variety_check
+        # was pointed at this bot, 8 September 2026: "Busiest Tube stations"
+        # 2d8h apart, "Transport for London footfall" 2d21h apart — both
+        # past the old 2-day cooldown, both must now be caught by the 4-day
+        # one. A stamp 2 days 21 hours old is the closest of the two to the
+        # boundary, so it is the sharper check.
+        state = {'vein_last_at': {'daily_footfall':
+                 (datetime.now(timezone.utc)
+                  - timedelta(days=2, hours=21)).isoformat()}}
+        out = S.apply_cooldown(self.pool, state, S.BUSIEST_STATION_VEINS,
+                               S.BUSIEST_STATION_COOLDOWN_DAYS, 'test')
+        veins = {f['vein'] for f in out}
+        self.assertNotIn('daily_footfall', veins)
+        self.assertNotIn('station_usage', veins)
 
     def test_abandoned_rather_than_emptying_the_pool(self):
         # Nothing left outside the cooled group with >= 2 facts of its own.
@@ -149,6 +166,65 @@ class UpdateState(unittest.TestCase):
         state = S.update_state(state, {'ids': ['b:1'], 'vein': 'river_levels'})
         self.assertIn('tfl_bikes', state['vein_last_at'])
         self.assertIn('river_levels', state['vein_last_at'])
+
+
+class DcmsMuseumsCooldown(unittest.TestCase):
+    """dcms_museums is annual/static data: a repeat pick of the same pair is
+    a byte-identical card, not just a repeated theme, which is why it gets
+    its own cooldown group rather than relying on recent_ids alone — see
+    the museum_gap duplicate of 5/8 September 2026 in the module docstring."""
+
+    def setUp(self):
+        self.pool = mkfact('dcms_museums', 3) + mkfact('river_levels', 2)
+
+    def test_recent_post_drops_the_vein(self):
+        state = {'vein_last_at': {'dcms_museums': iso(hours_ago=1)}}
+        out = S.apply_cooldown(self.pool, state, S.DCMS_MUSEUMS_VEINS,
+                               S.DCMS_MUSEUMS_COOLDOWN_DAYS, 'test')
+        veins = {f['vein'] for f in out}
+        self.assertNotIn('dcms_museums', veins)
+        self.assertIn('river_levels', veins)
+
+    def test_stamp_older_than_the_window_does_not_cool_down(self):
+        state = {'vein_last_at': {
+            'dcms_museums': iso(days_ago=S.DCMS_MUSEUMS_COOLDOWN_DAYS + 1)}}
+        out = S.apply_cooldown(self.pool, state, S.DCMS_MUSEUMS_VEINS,
+                               S.DCMS_MUSEUMS_COOLDOWN_DAYS, 'test')
+        self.assertEqual(out, self.pool)
+
+    def test_the_actual_incident_gap_is_now_blocked(self):
+        # The real duplicate was 3 days apart (5 Sept 16:04 -> 8 Sept
+        # 16:04). A stamp 3 days old must still be within the 4-day window.
+        state = {'vein_last_at': {'dcms_museums': iso(days_ago=3)}}
+        out = S.apply_cooldown(self.pool, state, S.DCMS_MUSEUMS_VEINS,
+                               S.DCMS_MUSEUMS_COOLDOWN_DAYS, 'test')
+        self.assertNotIn('dcms_museums', {f['vein'] for f in out})
+
+    def test_select_applies_both_cooldowns_together(self):
+        pool = (mkfact('station_usage', 4) + mkfact('dcms_museums', 3)
+                + mkfact('tfl_bikes', 3))
+        state = {'vein_last_at': {
+            'station_usage': iso(hours_ago=1),
+            'dcms_museums': iso(hours_ago=1),
+        }}
+        captured = {}
+
+        def fake_run(cmd, **kwargs):
+            captured['prompt'] = cmd[-1]
+
+            class Result:
+                returncode = 0
+                stdout = ('{"opener": {"emoji": "", "text": "Test"}, '
+                          '"ids": ["tfl_bikes:0", "tfl_bikes:1"]}')
+                stderr = ''
+            return Result()
+
+        with patch('subprocess.run', side_effect=fake_run):
+            sel = S.select(pool, state)
+
+        self.assertEqual(sel['vein'], 'tfl_bikes')
+        self.assertNotIn('station_usage:0', captured['prompt'])
+        self.assertNotIn('dcms_museums:0', captured['prompt'])
 
 
 class SelectWiring(unittest.TestCase):

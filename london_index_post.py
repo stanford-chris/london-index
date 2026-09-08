@@ -140,10 +140,20 @@ def main():
 
     posted_uri = None
     if not fallback:
-        alt = f"{c['opener']['text']}\n" + '\n'.join(
-            f"{l['label']}: {l['value']}" for l in c['lines'])
+        # curly(), not _esc(): this text goes to Bluesky as plain alt text,
+        # never through HTML, so only the typographer's-quotes half of
+        # london_index_card.py's _esc() applies — html.escape() would wrongly
+        # turn a literal "&" into "&amp;" here. Added 8 September 2026: this
+        # alt was built straight from compose()'s raw strings with no curling
+        # at all, so every apostrophe in it (museum names, possessives) shipped
+        # as U+0027 while the card IMAGE right next to it, built through
+        # london_index_card.py's own curly()-via-_esc, correctly shipped
+        # U+2019 — confirmed live, e.g. "Sir John Soane's Museum" in the alt
+        # of https://bsky.app/profile/london-index.bsky.social/post/3muyhgkaasd2n.
+        alt = f"{card.curly(c['opener']['text'])}\n" + '\n'.join(
+            f"{card.curly(l['label'])}: {card.curly(l['value'])}" for l in c['lines'])
         if c['footnote']:
-            alt += f"\n({c['footnote']})"
+            alt += f"\n({card.curly(c['footnote'])})"
         ar = models.AppBskyEmbedDefs.AspectRatio(width=size[0], height=size[1])
         p1 = bsky.send_image(text='', image=image_bytes, image_alt=alt,
                              langs=['en'], image_aspect_ratio=ar)
