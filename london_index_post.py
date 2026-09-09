@@ -179,9 +179,16 @@ def main():
             parent=root_ref, root=root_ref), langs=['en'])
         print('\nPosted (2-post thread: card, source reply).')
     else:
-        body = f"{c['opener']['text']}\n" + '\n'.join(
-            f"{l['label']}: {l['value']}" for l in c['lines'])
-        body += f"\nSource: {c['source_text']}"
+        # curly() here too, for the same reason as the alt-text path above:
+        # this text goes to Bluesky as a plain post, never through HTML, so
+        # only the typographer's-quotes half applies. Added 9 September 2026 -
+        # the alt-text fix on 8 September only touched the not-fallback
+        # branch, leaving this rarer render-failure path shipping straight
+        # apostrophes with nothing to catch it, since it fires only when
+        # card.render_card() itself raises.
+        body = f"{card.curly(c['opener']['text'])}\n" + '\n'.join(
+            f"{card.curly(l['label'])}: {card.curly(l['value'])}" for l in c['lines'])
+        body += f"\nSource: {card.curly(c['source_text'])}"
         if len(body) > MAX_POST_CHARS:
             sys.exit(f'Plaintext-fallback post too long ({len(body)} chars, max {MAX_POST_CHARS}).')
         p1 = bsky.send_post(text=body, langs=['en'])
