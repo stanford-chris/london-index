@@ -482,9 +482,18 @@ def select(pool, state):
     for attempt in range(attempts):
         last = attempt == attempts - 1
         try:
-            r = subprocess.run(['claude', '-p', '--model', CLAUDE_MODEL, prompt],
+            # ⚠️ --restricted --tools "": no tools at all, since 11 September
+            # 2026, same as Seoul Index's selector (its CONFINED comment carries
+            # the incident). This is text in, JSON out, and needs no tool;
+            # unconfined, `claude -p` is an agent with Bash in this Mac's home
+            # directory. --restricted also ignores the user's settings files,
+            # so no hook fires from inside a scheduled post. stdin=DEVNULL
+            # because the CLI otherwise waits three seconds for stdin on every
+            # hand-run call.
+            r = subprocess.run(['claude', '-p', '--restricted', '--tools', '',
+                                '--model', CLAUDE_MODEL, prompt],
                                capture_output=True, text=True, env=claude_env(),
-                               timeout=CLAUDE_TIMEOUT)
+                               stdin=subprocess.DEVNULL, timeout=CLAUDE_TIMEOUT)
         except subprocess.TimeoutExpired:
             if last:
                 raise RuntimeError(f'claude -p timed out after {CLAUDE_TIMEOUT}s, {attempts} times')

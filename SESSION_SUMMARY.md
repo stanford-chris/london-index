@@ -469,6 +469,24 @@ adding it once real posts accumulate, and revisiting this schedule against
 real data after a couple of weeks, is the honest next step, not treating
 today's times as final.
 
+## The selector's `claude -p` call is confined — 11 September 2026
+
+`select()` now runs `claude -p --restricted --tools ""`: no tools at all.
+It is text in, JSON out, and needs none; unconfined, `claude -p` is an
+agent with Bash in the Mini's home directory, and the everygeorgia
+transcriber was found that day cropping images through a dozen tool calls
+and once running the project's own code from inside such a call. Seoul
+Index's selector and label check got the same treatment the same day
+(`CONFINED` in `seoul_index_post.py` carries the incident). `--restricted`
+also ignores the user's settings files, so no hook fires from inside a
+scheduled post, and the call passes `stdin=DEVNULL` because the CLI
+otherwise waits three seconds for stdin on every hand-run call. Verified
+with a real `select()` on a five-fact synthetic pool: the vein floor
+promoted `police`, and the confined call returned the same JSON shape in
+about five seconds. `test_london_index_select.py` passes unchanged; it
+mocks `subprocess.run` and reads only the prompt, so it cannot see the
+flags. Check the argv, not the tests.
+
 ## Not yet done
 
 - **A real live post has never been made** — everything is verified via
