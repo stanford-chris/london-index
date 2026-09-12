@@ -316,6 +316,7 @@ FIXED_OPENERS = {
     ('flood', 'flood_gap'): {'emoji': '🌊', 'text': 'Flood warnings and alerts'},
     ('rail_departures', 'rail_all'): {'emoji': '🚆', 'text': 'Trains from London’s stations'},
     ('rail_departures', 'rail_top'): {'emoji': '🚆', 'text': 'Busiest London train stations'},
+    ('rail_departures', 'rail_ops_top'): {'emoji': '🚆', 'text': 'Trains running late, by operator'},
 }
 
 

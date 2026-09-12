@@ -2071,6 +2071,11 @@ RAIL_PAGE = 'https://www.nationalrail.co.uk/'
 RAIL_LEAD = f'Departures in the next hour, {len(RAIL_TERMINI)} main stations'
 RAIL_NOTE = 'National Rail, as on the live boards'
 RAIL_TOP_N = 4
+# "Running late, by operator": the boards name the operator of every train,
+# so the late ones can be counted by company. At least RAIL_OPS_MIN
+# operators must have a late train before the ranked group is made, or
+# one late Thameslink is a league table of one. Added 12 September 2026.
+RAIL_OPS_MIN = 3
 # Under this many departures across every terminus the boards are the
 # small hours (9 at 1:36 a.m. on 12 September 2026), not a city, and no
 # card is made. Under RAIL_MIN_STATIONS answering, a partial London is not
@@ -2120,15 +2125,22 @@ def rail_facts(boards, url=RAIL_PAGE):
       - "rail_all": trains departing within the hour, on time, running late,
         cancelled (any 2 to 4, fixed opener)
       - "rail_top": the RAIL_TOP_N termini with the most departures,
-        ranked"""
+        ranked
+      - "rail_ops_top": operators ranked by trains running late, when
+        RAIL_OPS_MIN or more have one"""
     mk = lambda v, label, pair: fact(f'{v:,}', label, RAIL_SOURCE, url, pair=pair,
                                      context_note=RAIL_NOTE, dateline_lead=RAIL_LEAD)
     counts = {'on time': 0, 'late': 0, 'cancelled': 0, 'other': 0}
     per = {}
+    late_by_operator = {}
     for name, services in boards.items():
         per[name] = len(services)
         for svc in services:
-            counts[classify_departure(svc)] += 1
+            state = classify_departure(svc)
+            counts[state] += 1
+            op = (svc.get('operator') or '').strip()
+            if state == 'late' and op:
+                late_by_operator[op] = late_by_operator.get(op, 0) + 1
     total = sum(per.values())
     facts = [mk(total, 'Departing within the hour', 'rail_all'),
              mk(counts['on time'], 'On time', 'rail_all'),
@@ -2142,6 +2154,9 @@ def rail_facts(boards, url=RAIL_PAGE):
     if len(busy) >= RAIL_TOP_N:
         for name, n in busy[:RAIL_TOP_N]:
             facts.append(mk(n, name, 'rail_top'))
+    if len(late_by_operator) >= RAIL_OPS_MIN:
+        for op, n in sorted(late_by_operator.items(), key=lambda kv: (-kv[1], kv[0]))[:RAIL_TOP_N]:
+            facts.append(mk(n, op, 'rail_ops_top'))
     return facts
 
 

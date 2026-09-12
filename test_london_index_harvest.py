@@ -259,6 +259,17 @@ class RailFacts(unittest.TestCase):
         self.assertEqual(len(top), 4)
         self.assertNotIn('0', [v for _, v in top])
 
+    def test_late_by_operator_needs_three_operators_and_ranks_them(self):
+        def svc(op, etd='09:07'):
+            return {'std': '09:00', 'etd': etd, 'isCancelled': False, 'operator': op}
+        boards = {'Waterloo': [svc('South Western Railway')] * 3 + [svc('South Western Railway', 'On time')],
+                  'Victoria': [svc('Southern')] * 2 + [svc('Southeastern', 'Cancelled')]}
+        # Two operators late (Southeastern is cancelled, not late): no group.
+        self.assertEqual([f for f in H.rail_facts(boards) if f['pair'] == 'rail_ops_top'], [])
+        boards['Euston'] = [svc('Avanti West Coast', 'Delayed')]
+        ops = [(f['label'], f['value']) for f in H.rail_facts(boards) if f['pair'] == 'rail_ops_top']
+        self.assertEqual(ops, [('South Western Railway', '3'), ('Southern', '2'), ('Avanti West Coast', '1')])
+
     def test_no_key_is_a_named_refusal_not_a_crash(self):
         with unittest.mock.patch.object(H, '_rdm_key', return_value=None):
             facts, err = H.harvest_rail_departures()
