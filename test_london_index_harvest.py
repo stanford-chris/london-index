@@ -59,7 +59,7 @@ class CentralFacts(unittest.TestCase):
         self.assertEqual([f['label'] for f in top],
                          ['Other theft', 'Violent crime', 'Anti-social behaviour', 'Shoplifting'])
         self.assertTrue(all(f['period'] == '2026-07' for f in facts))
-        self.assertTrue(all(f['context_note'] == H.CENTRAL_NOTE for f in top))
+        self.assertTrue(all(f['dateline_lead'] == H.CENTRAL_LEAD for f in top))
 
     def test_no_previous_month_means_no_change_line(self):
         facts = H.central_facts(recs(**{'other-theft': 5, 'burglary': 3}), None, '2026-07', self.URL)
@@ -113,8 +113,10 @@ class BoroughFacts(unittest.TestCase):
     def test_every_fact_carries_the_sample_note(self):
         for f in self.facts():
             self.assertEqual(f['context_note'], H.BOROUGH_NOTE)
+            self.assertEqual(f['dateline_lead'], H.BOROUGH_LEAD)
             self.assertEqual(f['period'], '2026-07')
-        self.assertIn('eight boroughs sampled', H.BOROUGH_NOTE)
+        self.assertIn('Eight boroughs sampled', H.BOROUGH_NOTE)
+        self.assertEqual(H.BOROUGH_LEAD, 'Within a mile of each town hall')
 
 
 class FloodFacts(unittest.TestCase):
@@ -243,7 +245,8 @@ class RailFacts(unittest.TestCase):
                           ('Running late', '1', 'rail_all'), ('Cancelled', '1', 'rail_all'),
                           ('Waterloo', '6', 'rail_top'), ('Euston', '3', 'rail_top'),
                           ('Moorgate', '1', 'rail_top'), ('Victoria', '1', 'rail_top')])
-        self.assertTrue(all(f['period'] is None and f['context_note'] == H.RAIL_NOTE for f in facts))
+        self.assertTrue(all(f['period'] is None and f['context_note'] == H.RAIL_NOTE
+                            and f['dateline_lead'] == H.RAIL_LEAD for f in facts))
 
     def test_ranked_list_never_carries_a_zero_and_needs_four_busy_stations(self):
         boards = {'St Pancras': [self.svc('01:44', 'On time')] * 2, 'Paddington': [self.svc('01:45', 'On time')],
@@ -285,6 +288,37 @@ class RailFacts(unittest.TestCase):
             facts, err = H.harvest_rail_departures()
         self.assertEqual(facts, [])
         self.assertIn('termini answered', err)
+
+
+class DatelineLead(unittest.TestCase):
+    """compose() puts a fact's dateline_lead ahead of the date on the second
+    line; a fact without one renders as before."""
+
+    def compose(self, facts):
+        import london_index_compose as C
+        for i, f in enumerate(facts):
+            f['id'] = f'x:{i}'
+            f['vein'] = 'x'   # build_pool() stamps this on real facts
+        return C.compose({'opener': {'emoji': '', 'text': 'T'}, 'ids': [f['id'] for f in facts]}, facts)
+
+    def test_lead_rides_the_dateline_with_the_period(self):
+        facts = H.borough_facts({'A': 10, 'B': 5, 'C': 3, 'D': 1}, {}, {}, '2026-07', 'u')[:2]
+        self.assertEqual(self.compose(facts)['dateline'], 'Within a mile of each town hall, July 2026')
+
+    def test_lead_alone_when_there_is_no_single_period(self):
+        facts = [H.fact('1', 'a', 's', 'u', period='2026-06', dateline_lead='Lead'),
+                 H.fact('2', 'b', 's', 'u', period='2026-07', dateline_lead='Lead')]
+        self.assertEqual(self.compose(facts)['dateline'], 'Lead')
+
+    def test_no_lead_is_unchanged(self):
+        facts = [H.fact('1', 'a', 's', 'u', period='2026-06'), H.fact('2', 'b', 's', 'u', period='2026-06')]
+        self.assertEqual(self.compose(facts)['dateline'], 'June 2026')
+
+    def test_live_lead_carries_the_clock(self):
+        facts = H.rail_facts({'A': [{'std': '09:00', 'etd': 'On time'}] * 2, 'B': [], 'C': [], 'D': []})[:2]
+        d = self.compose(facts)['dateline']
+        self.assertTrue(d.startswith('Departures in the next hour, 13 main stations, '), d)
+        self.assertRegex(d, r'\d{1,2}:\d\d [ap]\.m\.$')
 
 
 import unittest.mock  # noqa: E402  (used by HousePriceFacts)

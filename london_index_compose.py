@@ -183,11 +183,21 @@ def compose(sel, pool):
     context_note = next((f['context_note'] for f in picks if f.get('context_note')), None)
     footnote = context_note[:MAX_FOOTNOTE_CHARS] if context_note else ''
 
+    # The qualifier rides the second line ahead of the date, Seoul Index's
+    # convention for its ranked cards and Chris's call here, 12 September
+    # 2026: "Within a mile of each town hall, July 2026". A card with a lead
+    # but no date (a mixed-period card) shows the lead alone. Facts with no
+    # lead render exactly as before.
+    dateline = _dateline(picks)
+    lead = next((f['dateline_lead'] for f in picks if f.get('dateline_lead')), None)
+    if lead:
+        dateline = f'{lead}, {dateline}' if dateline else lead
+
     return {
         'opener': sel['opener'],
         'lines': lines,
         'footnote': footnote,
-        'dateline': _dateline(picks),
+        'dateline': dateline,
         'sources': sources,
         'source_text': source_text,
         'period_credit': period_credit,

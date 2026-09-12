@@ -425,7 +425,8 @@ def tfl_get_json(url, timeout=25):
     return get_json(url, timeout=timeout)
 
 
-def fact(value, label, source, url, period=None, pair=None, context_note=None):
+def fact(value, label, source, url, period=None, pair=None, context_note=None,
+         dateline_lead=None):
     """`pair` tags a fact as part of a pre-detected juxtaposition — a group
     of facts sharing one pair id are offered to the selector as a single
     unit worth building a card around, the same mechanism Seoul Index's
@@ -446,9 +447,17 @@ def fact(value, label, source, url, period=None, pair=None, context_note=None):
     after two real questions about real cards neither could answer on its
     own: "why these two [stations, out of how many]?" and, once that was
     fixed, "we need a clearer description of 'baseline'" — the pool size
-    alone wasn't the whole gap."""
+    alone wasn't the whole gap.
+
+    `dateline_lead` is the qualifier that rides the card's SECOND line, ahead
+    of the date ("Within a mile of each town hall, July 2026"), Seoul Index's
+    own convention for its ranked cards and Chris's call for this account on
+    12 September 2026 ("move some of the footnote description into the
+    second line"). The footnote then keeps only what is left: the source or
+    the sample. compose() takes the first pick's lead."""
     return {'value': value, 'label': label, 'source': source, 'url': url,
-            'period': period, 'pair': pair, 'context_note': context_note}
+            'period': period, 'pair': pair, 'context_note': context_note,
+            'dateline_lead': dateline_lead}
 
 
 def pct_of_baseline(fraction):
@@ -708,7 +717,7 @@ def _category_name(cat):
     return cat.replace('-', ' ').capitalize()
 
 
-CENTRAL_NOTE = 'Within a mile of Trafalgar Square'
+CENTRAL_LEAD = 'Within a mile of Trafalgar Square'
 CENTRAL_TOP_N = 4
 
 
@@ -742,7 +751,7 @@ def central_facts(records, prev_records, ym, url):
                               'data.police.uk', url, period=ym))
     for cat, n in ranked[:CENTRAL_TOP_N]:
         facts.append(fact(f'{n:,}', _category_name(cat), 'data.police.uk', url,
-                          period=ym, pair='central_top', context_note=CENTRAL_NOTE))
+                          period=ym, pair='central_top', dateline_lead=CENTRAL_LEAD))
     return facts
 
 
@@ -781,8 +790,8 @@ POLICE_BOROUGHS = {
 # borough's total, and until 12 September 2026 no card said so: "Most:
 # Camden 3,179" under "Reported crime" read as Camden's monthly total. This
 # note rides every borough fact so compose() puts it in the card's footnote.
-BOROUGH_NOTE = ('Within a mile of each town hall; eight boroughs sampled: '
-                + ', '.join(POLICE_BOROUGHS))
+BOROUGH_LEAD = 'Within a mile of each town hall'
+BOROUGH_NOTE = 'Eight boroughs sampled: ' + ', '.join(POLICE_BOROUGHS)
 BOROUGH_TOP_N = 4
 # The categories worth a "which borough had the most" line, in the order a
 # reader expects them. Anti-social behaviour and other-theft are left out
@@ -810,13 +819,14 @@ def borough_facts(counts, prev_counts, cats, ym, url):
         borough with the most of it, ranked by count, picked whole
     Every fact carries BOROUGH_NOTE."""
     note = BOROUGH_NOTE
+    lead = BOROUGH_LEAD
     ranked = sorted(counts.items(), key=lambda kv: -kv[1])
     busiest, quietest = ranked[0], ranked[-1]
     facts = [
         fact(f'{busiest[1]:,}', f'Most: {busiest[0]}',
-             'data.police.uk', url, period=ym, pair='police_gap', context_note=note),
+             'data.police.uk', url, period=ym, pair='police_gap', context_note=note, dateline_lead=lead),
         fact(f'{quietest[1]:,}', f'Fewest: {quietest[0]}',
-             'data.police.uk', url, period=ym, pair='police_gap', context_note=note),
+             'data.police.uk', url, period=ym, pair='police_gap', context_note=note, dateline_lead=lead),
     ]
     # Dead-heat: two of the curated boroughs whose crime counts happen to
     # land on nearly the same number, out of the whole set rather than just
@@ -827,10 +837,10 @@ def borough_facts(counts, prev_counts, cats, ym, url):
         for name in (name_a, name_b):
             facts.append(fact(f'{counts[name]:,}', name,
                                'data.police.uk', url, period=ym,
-                               pair='police_heat', context_note=note))
+                               pair='police_heat', context_note=note, dateline_lead=lead))
     for name, n in ranked[:BOROUGH_TOP_N]:
         facts.append(fact(f'{n:,}', name, 'data.police.uk', url, period=ym,
-                          pair='police_top', context_note=note))
+                          pair='police_top', context_note=note, dateline_lead=lead))
     if prev_counts:
         prev_month = _readable_month(_shift_month(ym, 1))
         changes = [(name, (n - prev_counts[name]) / prev_counts[name])
@@ -843,12 +853,12 @@ def borough_facts(counts, prev_counts, cats, ym, url):
             facts.append(fact(_pct_change(counts[rise_name], prev_counts[rise_name]),
                               f'Biggest rise since {prev_month}: {rise_name}',
                               'data.police.uk', url, period=ym,
-                              pair='police_change', context_note=note))
+                              pair='police_change', context_note=note, dateline_lead=lead))
             fall_label = 'Biggest fall' if fall < 0 else 'Smallest rise'
             facts.append(fact(_pct_change(counts[fall_name], prev_counts[fall_name]),
                               f'{fall_label} since {prev_month}: {fall_name}',
                               'data.police.uk', url, period=ym,
-                              pair='police_change', context_note=note))
+                              pair='police_change', context_note=note, dateline_lead=lead))
     leaders = []
     for cat in BOROUGH_TYPE_CATEGORIES:
         per = {name: c.get(cat, 0) for name, c in cats.items()}
@@ -860,7 +870,7 @@ def borough_facts(counts, prev_counts, cats, ym, url):
     for cat, name, n in leaders[:BOROUGH_TYPES_N]:
         facts.append(fact(f'{n:,}', f'{_category_name(cat)}: {name}',
                           'data.police.uk', url, period=ym,
-                          pair='police_types_top', context_note=note))
+                          pair='police_types_top', context_note=note, dateline_lead=lead))
     return facts
 
 
@@ -1598,7 +1608,7 @@ def harvest_daily_footfall():
 
 
 # --- Stop and search (data.police.uk, Metropolitan Police, monthly) --------
-STOPS_NOTE = 'Metropolitan Police, whole force area'
+STOPS_LEAD = 'Metropolitan Police'
 
 
 def stop_search_facts(records, ym, url):
@@ -1613,7 +1623,7 @@ def stop_search_facts(records, ym, url):
     drugs = sum(1 for r in records if (r.get('object_of_search') or '') == 'Controlled drugs')
     weapons = sum(1 for r in records if (r.get('object_of_search') or '') == 'Offensive weapons')
     mk = lambda v, label: fact(f'{v:,}', label, 'data.police.uk', url, period=ym,
-                               pair='stops_all', context_note=STOPS_NOTE)
+                               pair='stops_all', dateline_lead=STOPS_LEAD)
     return [mk(total, 'Searches'), mk(arrests, 'Ended in arrest'),
             mk(nfa, 'No further action'), mk(drugs, 'For drugs'),
             mk(weapons, 'For weapons')]
@@ -1659,7 +1669,8 @@ HPI_MIN_BOROUGHS = 30
 HPI_TOP_N = 4
 HPI_SOURCE = 'HM Land Registry (UK House Price Index)'
 HPI_PAGE = 'https://landregistry.data.gov.uk/app/ukhpi'
-HPI_NOTE = 'Land Registry index averages, all property types; recent months are provisional'
+HPI_LEAD = 'Land Registry index averages'
+HPI_NOTE = 'All property types; recent months are provisional'
 
 
 def _hpi_month(slug, ym):
@@ -1696,7 +1707,8 @@ def house_price_facts(london, boroughs, ym, url=HPI_PAGE):
         smallest rise) by borough
     The borough shapes appear only when at least HPI_MIN_BOROUGHS answered."""
     mk = lambda v, label, pair=None: fact(v, label, HPI_SOURCE, url, period=ym,
-                                          pair=pair, context_note=HPI_NOTE)
+                                          pair=pair, context_note=HPI_NOTE,
+                                          dateline_lead=HPI_LEAD)
     facts = [mk(_pounds(london['averagePrice']), 'Average price, London')]
     annual = _signed_pct(london.get('percentageAnnualChange'))
     if annual:
@@ -1757,7 +1769,8 @@ def harvest_house_prices():
 # --- Roadworks and disruptions on TfL roads (live) -------------------------
 ROADS_URL = 'https://api.tfl.gov.uk/Road/all/Disruption'
 ROADS_PAGE = 'https://tfl.gov.uk/traffic/status'
-ROADS_NOTE = 'The Transport for London Road Network (red routes), not every London street'
+ROADS_LEAD = 'TfL’s red routes'
+ROADS_NOTE = 'The Transport for London Road Network, not every London street'
 SERIOUS = {'moderate', 'serious', 'severe'}
 
 
@@ -1769,7 +1782,8 @@ def road_facts(items, url=ROADS_PAGE):
     serious = sum(1 for i in items if (i.get('severity') or '').lower() in SERIOUS)
     works = sum(1 for i in items if (i.get('category') or '') == 'Works')
     mk = lambda v, label: fact(f'{v:,}', label, 'TfL Road disruptions', url,
-                               pair='roads_all', context_note=ROADS_NOTE)
+                               pair='roads_all', context_note=ROADS_NOTE,
+                               dateline_lead=ROADS_LEAD)
     return [mk(total, 'Disruptions on TfL roads'), mk(serious, 'Moderate or worse'),
             mk(works, 'Planned roadworks')]
 
@@ -1786,7 +1800,7 @@ ANIMALS_URL = ('https://data.london.gov.uk/download/2ogkn/01007433-55c2-4b8a-b79
                'Animal%20Rescue%20incidents%20attended%20by%20LFB%20from%20Jan%202009.csv.xlsx')
 ANIMALS_PAGE = 'https://data.london.gov.uk/dataset/animal-rescue-incidents-attended-by-lfb'
 ANIMALS_SOURCE = 'London Datastore (LFB animal rescues)'
-ANIMALS_NOTE = 'London Fire Brigade callouts to animals trapped or in distress'
+ANIMALS_LEAD = 'Callouts to animals trapped or in distress'
 ANIMALS_TOP_N = 4
 ANIMALS_MIN_ROWS = 10
 # The file's AnimalGroupParent is singular ("Cat", "Bird"); a count wants
@@ -1807,7 +1821,7 @@ def animal_facts(rows, ym, url=ANIMALS_PAGE):
     ANIMALS_TOP_N most-rescued kinds of animal ranked ("animals_top"), and
     the brigade's own notional cost of it all (unpaired)."""
     mk = lambda v, label, pair=None: fact(v, label, ANIMALS_SOURCE, url, period=ym,
-                                          pair=pair, context_note=ANIMALS_NOTE)
+                                          pair=pair, dateline_lead=ANIMALS_LEAD)
     facts = [mk(f'{len(rows):,}', 'Animals rescued')]
     boroughs = {}
     kinds = {}
@@ -1893,8 +1907,10 @@ RAIL_PAGE = 'https://www.nationalrail.co.uk/'
 # 12 September 2026, since termini is railway jargon to most readers.
 # "Departing", never "due": Chris read "Trains due within the hour" as
 # arrivals (12 September 2026), and the board is GetDepartureBoard.
-RAIL_NOTE = (f'National Rail departures in the next {RAIL_WINDOW_MIN} minutes from '
-             f'{len(RAIL_TERMINI)} of London’s main stations, as on the live boards')
+# Short enough for one line on the card: "…from 13 main stations, 12 September
+# at 1:52 a.m." wrapped, orphaning "a.m." (seen on a render, 12 September 2026).
+RAIL_LEAD = f'Departures in the next hour, {len(RAIL_TERMINI)} main stations'
+RAIL_NOTE = 'National Rail, as on the live boards'
 RAIL_TOP_N = 4
 # Under this many departures across every terminus the boards are the
 # small hours (9 at 1:36 a.m. on 12 September 2026), not a city, and no
@@ -1947,7 +1963,7 @@ def rail_facts(boards, url=RAIL_PAGE):
       - "rail_top": the RAIL_TOP_N termini with the most departures,
         ranked"""
     mk = lambda v, label, pair: fact(f'{v:,}', label, RAIL_SOURCE, url, pair=pair,
-                                     context_note=RAIL_NOTE)
+                                     context_note=RAIL_NOTE, dateline_lead=RAIL_LEAD)
     counts = {'on time': 0, 'late': 0, 'cancelled': 0, 'other': 0}
     per = {}
     for name, services in boards.items():

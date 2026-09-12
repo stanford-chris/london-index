@@ -169,7 +169,15 @@ def main():
         # london_index_card.py's own curly()-via-_esc, correctly shipped
         # U+2019 — confirmed live, e.g. "Sir John Soane's Museum" in the alt
         # of https://bsky.app/profile/london-index.bsky.social/post/3muyhgkaasd2n.
-        alt = f"{card.curly(c['opener']['text'])}\n" + '\n'.join(
+        # The dateline is in the alt since 12 September 2026: with the
+        # qualifier moved off the footnote and onto that line, leaving it
+        # out would drop "within a mile of each town hall" for every
+        # screen-reader user. bot_variety_check.py's masthead sweep reads
+        # only "label: value" rows, and this line carries no ": ".
+        alt = f"{card.curly(c['opener']['text'])}\n"
+        if c['dateline']:
+            alt += f"{card.curly(c['dateline'])}\n"
+        alt += '\n'.join(
             f"{card.curly(l['label'])}: {card.curly(l['value'])}" for l in c['lines'])
         if c['footnote']:
             alt += f"\n({card.curly(c['footnote'])})"
@@ -205,7 +213,10 @@ def main():
         # branch, leaving this rarer render-failure path shipping straight
         # apostrophes with nothing to catch it, since it fires only when
         # card.render_card() itself raises.
-        body = f"{card.curly(c['opener']['text'])}\n" + '\n'.join(
+        body = f"{card.curly(c['opener']['text'])}\n"
+        if c['dateline']:
+            body += f"{card.curly(c['dateline'])}\n"
+        body += '\n'.join(
             f"{card.curly(l['label'])}: {card.curly(l['value'])}" for l in c['lines'])
         body += f"\nSource: {card.curly(c['source_text'])}"
         if len(body) > MAX_POST_CHARS:

@@ -729,3 +729,31 @@ Rail Delivery Group rides the source link (`RAIL_SOURCE`), as the licence
 requires. 5 more tests in `test_london_index_harvest.py` (27).
 ✅ The pinned thread's source reply now carries both (reposted with
 `--replace` the same session, facets read back from the live thread).
+
+### The qualifier moves to the second line (12 September 2026, his call: "all seven")
+"I think we need to move some of the footnote description into the second
+line." Seoul Index already does this for its ranked cards (the measure
+rides the dateline, his layout of 11 September). `fact()` gained
+`dateline_lead`; `compose()` puts the first pick's lead ahead of the date
+("Within a mile of each town hall, July 2026"; a mixed-period card shows
+the lead alone; a fact with no lead renders exactly as before). The
+footnote keeps only the source or the sample. Leads: boroughs "Within a
+mile of each town hall" (footnote: the eight boroughs), central top four
+"Within a mile of Trafalgar Square", stop and search "Metropolitan
+Police", house prices "Land Registry index averages" (footnote: "All
+property types; recent months are provisional"), animal rescues "Callouts
+to animals trapped or in distress", roadworks "TfL’s red routes"
+(footnote: "The Transport for London Road Network, not every London
+street"), rail "Departures in the next hour, 13 main stations" (footnote:
+"National Rail, as on the live boards"). ⚠️ The rail lead was first
+"…in the next 60 minutes from 13 main stations", which wrapped and
+orphaned "a.m." on the render; shortened. ⚠️ **The dateline now rides
+the alt text and the plaintext fallback as the second line**, since
+moving the qualifier off the footnote would otherwise have removed it
+for screen-reader users; `bot_variety_check.py`'s masthead sweep reads
+only "label: value" rows and this line carries no ": ". Rail wording the
+same session: "Trains from London’s stations" / "Busiest London train
+stations" (his), and "Departing within the hour", never "due", which he
+read as arrivals. `rail_top` is built only from stations with a train
+departing, and only when four qualify: a 1:43 a.m. render had listed
+King’s Cross and Euston at 0. Tests: harvest 32, select 36.
