@@ -431,7 +431,7 @@ def tfl_get_json(url, timeout=25):
 
 
 def fact(value, label, source, url, period=None, pair=None, context_note=None,
-         dateline_lead=None, fixed_opener=None):
+         dateline_lead=None, fixed_opener=None, map_pin=None):
     """`pair` tags a fact as part of a pre-detected juxtaposition — a group
     of facts sharing one pair id are offered to the selector as a single
     unit worth building a card around, the same mechanism Seoul Index's
@@ -464,10 +464,15 @@ def fact(value, label, source, url, period=None, pair=None, context_note=None,
     `fixed_opener` ({'emoji', 'text'}) is a title Python sets because it has
     to name something only Python knows, such as the spotlight borough;
     select() uses it when every pick carries the same one, ahead of the
-    FIXED_OPENERS table and the model's own wording."""
+    FIXED_OPENERS table and the model's own wording.
+
+    `map_pin` ({'name', 'lat', 'lng'}) asks london_index_post.py for a
+    threaded map reply (london_index_card.render_borough_map) with that
+    borough highlighted and a one-mile circle at those coordinates."""
     return {'value': value, 'label': label, 'source': source, 'url': url,
             'period': period, 'pair': pair, 'context_note': context_note,
-            'dateline_lead': dateline_lead, 'fixed_opener': fixed_opener}
+            'dateline_lead': dateline_lead, 'fixed_opener': fixed_opener,
+            'map_pin': map_pin}
 
 
 def pct_of_baseline(fraction):
@@ -977,8 +982,9 @@ ALL_BOROUGHS.update({
 })
 SPOTLIGHT_OPENER_PREFIX = 'Reported crime in '
 SPOTLIGHT_LEAD = 'Within a mile of the town hall'
-SPOTLIGHT_NOTE = ('One of 33 boroughs, a different one each card; ranked against the same '
-                  'one-mile sample at every town hall')
+# No footnote, his call 12 September 2026 ("I'm not sure I see the value"):
+# the rank value already says "of 33" and the threaded map shows the sample.
+SPOTLIGHT_NOTE = None
 SPOTLIGHT_MIN_RANKED = 20
 CARD_HISTORY_PATH = Path(__file__).parent / 'card_history.jsonl'
 
@@ -1016,14 +1022,16 @@ def spotlight_pick(candidates, last_featured):
     return sorted(candidates, key=lambda n: (n in last_featured, last_featured.get(n, ''), n))[0]
 
 
-def spotlight_facts(name, records, prev_records, all_counts, ym, url):
+def spotlight_facts(name, records, prev_records, all_counts, ym, url, town_hall=None):
     """One borough's card. `all_counts` is borough -> count for every
     borough that answered this month, for the rank; under
     SPOTLIGHT_MIN_RANKED answering, no rank line."""
     opener = {'emoji': '🚓', 'text': SPOTLIGHT_OPENER_PREFIX + name}
+    town_hall = town_hall or ALL_BOROUGHS.get(name)
+    pin = {'name': name, 'lat': town_hall[0], 'lng': town_hall[1]} if town_hall else None
     mk = lambda v, label: fact(v, label, 'data.police.uk', url, period=ym, pair='spot_all',
                                context_note=SPOTLIGHT_NOTE, dateline_lead=SPOTLIGHT_LEAD,
-                               fixed_opener=opener)
+                               fixed_opener=opener, map_pin=pin)
     cats = {}
     for r in records:
         cats[r['category']] = cats.get(r['category'], 0) + 1

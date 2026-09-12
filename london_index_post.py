@@ -186,6 +186,39 @@ def main():
                              langs=['en'], image_aspect_ratio=ar)
         posted_uri = p1.uri
         root_ref = models.create_strong_ref(p1)
+        parent_ref = root_ref
+
+        # The spotlight's map: the borough filled, a one-mile circle around
+        # its town hall, threaded between the card and the source link.
+        # Chris's call, 12 September 2026. A failed map is logged and the
+        # thread continues without it, since the card is already live; the
+        # boundary file's licence terms ride the reply text (OGL v3, OS
+        # Crown copyright), which is what lets the outlines be posted.
+        if c.get('map_pin'):
+            pin = c['map_pin']
+            try:
+                map_path = HERE / 'map.png'
+                _, msize = card.render_borough_map(
+                    pin['name'], (pin['lat'], pin['lng']), map_path, title=pin['name'],
+                    caption='The circle is one mile around the town hall, the area the figures cover')
+                map_alt = (f"Map of Greater London’s 33 boroughs in outline with {pin['name']} "
+                           f"filled in, its town hall marked and a one-mile circle around it, "
+                           f"the area the card’s figures cover.")
+                mtb = client_utils.TextBuilder()
+                mtb.text('Boundaries: ').link('Office for National Statistics',
+                                              'https://geoportal.statistics.gov.uk/')
+                mtb.text(', Open Government Licence v3.0. Contains OS data © Crown '
+                         'copyright and database right 2024.')
+                pm = bsky.send_image(text=mtb, image=map_path.read_bytes(), image_alt=map_alt,
+                                     langs=['en'],
+                                     reply_to=models.AppBskyFeedPost.ReplyRef(parent=root_ref, root=root_ref),
+                                     image_aspect_ratio=models.AppBskyEmbedDefs.AspectRatio(
+                                         width=msize[0], height=msize[1]))
+                parent_ref = models.create_strong_ref(pm)
+                print('Posted the borough map as a reply.')
+            except Exception as e:  # noqa: BLE001 - the card is live; never let the map take the thread down
+                print(f'Borough map failed ({type(e).__name__}: {e}); thread continues without it.',
+                      file=sys.stderr)
 
         # Just the link(s) - no "Source: " label, no period credit. Chris's
         # call, 31 August 2026: the explanation of what a card's numbers
@@ -203,8 +236,9 @@ def main():
                 tb.text(' · ')
             tb.link(name, url)
         bsky.send_post(text=tb, reply_to=models.AppBskyFeedPost.ReplyRef(
-            parent=root_ref, root=root_ref), langs=['en'])
-        print('\nPosted (2-post thread: card, source reply).')
+            parent=parent_ref, root=root_ref), langs=['en'])
+        print('\nPosted (thread: card' + (', map' if parent_ref is not root_ref else '')
+              + ', source reply).')
     else:
         # curly() here too, for the same reason as the alt-text path above:
         # this text goes to Bluesky as a plain post, never through HTML, so

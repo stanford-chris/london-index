@@ -46,6 +46,7 @@ Public API:
 Raises CardRenderError on any failure so the poster can fall back to plaintext.
 """
 
+import math
 import re
 import subprocess
 import tempfile
@@ -68,6 +69,7 @@ CARD_WIDTH = 860             # CSS px, widened from 680 (sample_card_1.html) to 
 RENDER_HEIGHT = 1000         # generous CSS height; cropped to content after.
 CREAM = '#f5f0e6'
 INK = '#00247d'              # Underground-roundel navy, matching the avatar.
+RED = '#d70000'              # the site's AA red, for the town-hall dot and circle
 FONT_STACK = "'SF Mono', 'Menlo', 'Consolas', monospace"
 
 
@@ -208,6 +210,95 @@ def _shoot(doc, out_path, width=CARD_WIDTH):
                 f'{(r.stderr or r.stdout or "").strip()[:200]}')
         _, size = _crop_to_content(raw_png, out_path)
     return out_path, size
+
+
+MAP_SIZE = 860   # width in CSS px, the card's own; height follows London's shape
+MUTED = '#8a93b8'
+BOROUGHS_GEOJSON = Path(__file__).parent / 'data' / 'london_boroughs.geojson'
+MILE_M = 1609.344
+M_PER_DEG_LAT = 111_320
+
+
+def load_boroughs(path=BOROUGHS_GEOJSON):
+    """name -> list of rings, each a list of (lon, lat). ONS Local Authority
+    Districts (December 2024) Boundaries UK BGC, the 33 E09 codes, fetched
+    from the Open Geography Portal's FeatureServer as WGS84 GeoJSON on
+    12 September 2026 and committed, so no post depends on a live fetch.
+    Licence: Open Government Licence v3.0; "Contains OS data © Crown
+    copyright and database right 2024", which the map reply states."""
+    import json
+    d = json.loads(Path(path).read_text(encoding='utf-8'))
+    out = {}
+    for f in d['features']:
+        g = f['geometry']
+        polys = g['coordinates'] if g['type'] == 'MultiPolygon' else [g['coordinates']]
+        rings = []
+        for poly in polys:
+            for ring in poly:            # outer ring and any holes, all drawn
+                rings.append([(float(x), float(y)) for x, y in ring])
+        out[f['properties']['LAD24NM']] = rings
+    return out
+
+
+def render_borough_map(highlight, town_hall, out_path, title='', caption='', boroughs=None):
+    """Greater London's 33 boroughs in outline, `highlight` filled, its town
+    hall dotted and a one-mile circle around it: the threaded reply for the
+    spotlight card, and the honest picture of what "within a mile of the
+    town hall" covers. Chris's call, 12 September 2026. No basemap, no
+    tiles: the outlines are the map. `town_hall` is (lat, lng), as the
+    harvester stores it. Raises CardRenderError for a borough name the
+    boundary file does not carry, rather than drawing a map with nothing
+    highlighted."""
+    boroughs = boroughs or load_boroughs()
+    if highlight not in boroughs:
+        raise CardRenderError(f'{highlight!r} is not in the borough boundary file')
+    # Landscape, fitted to the city: London is wider than it is tall, and a
+    # square frame left a third of the canvas empty above and below it on
+    # the first render. Width is fixed; height follows the outlines, plus
+    # room for the title above and the caption below.
+    width = MAP_SIZE
+    pad = width * 0.04
+    top, bottom = 56, 44
+    pts = [p for rings in boroughs.values() for r in rings for p in r]
+    lo0, lo1 = min(p[0] for p in pts), max(p[0] for p in pts)
+    la0, la1 = min(p[1] for p in pts), max(p[1] for p in pts)
+    k = math.cos(math.radians((la0 + la1) / 2))
+    scale = (width - 2 * pad) / ((lo1 - lo0) * k)
+    size = int(round((la1 - la0) * scale + 2 * pad + top + bottom))   # the height
+    ox = pad
+    oy = bottom + pad
+
+    def xy(lon, lat):
+        return (ox + (lon - lo0) * k * scale, size - oy - (lat - la0) * scale)
+
+    def path(rings):
+        parts = []
+        for ring in rings:
+            parts.append('M' + 'L'.join(f'{x:.1f} {y:.1f}' for x, y in (xy(*p) for p in ring)) + 'Z')
+        return ''.join(parts)
+
+    body = [f'<path d="{path(rings)}" fill="{INK}" fill-opacity="0.06" stroke="{MUTED}" '
+            f'stroke-width="1" fill-rule="evenodd"/>'
+            for name, rings in boroughs.items() if name != highlight]
+    body.append(f'<path d="{path(boroughs[highlight])}" fill="{INK}" fill-opacity="0.55" '
+                f'stroke="{INK}" stroke-width="1.5" fill-rule="evenodd"/>')
+    lat, lng = town_hall
+    x, y = xy(lng, lat)
+    r = MILE_M / M_PER_DEG_LAT * scale   # a degree of latitude is `scale` px
+    body.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{r:.1f}" fill="{RED}" fill-opacity="0.18" '
+                f'stroke="{RED}" stroke-width="2"/>')
+    body.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="4.5" fill="{RED}" stroke="{CREAM}" stroke-width="2"/>')
+    title_html = (f'<text x="30" y="34" font-family="Menlo,monospace" font-size="20" '
+                  f'font-weight="bold" fill="#000">{_esc(title)}</text>' if title else '')
+    caption_html = (f'<text x="30" y="{size - 24}" font-family="Menlo,monospace" '
+                    f'font-size="12" fill="{MUTED}">{_esc(caption)}</text>' if caption else '')
+    svg = (f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{size}" '
+           f'viewBox="0 0 {width} {size}">'
+           f'<rect width="{width}" height="{size}" fill="{CREAM}"/>'
+           f'{"".join(body)}{title_html}{caption_html}</svg>')
+    doc = (f'<!doctype html><html><head><meta charset="utf-8"></head>'
+           f'<body style="margin:0;background:#{SENTINEL}">{svg}</body></html>')
+    return _shoot(doc, out_path, width=width)
 
 
 def render_card(opener, lines, out_path, footnote='', dateline=''):

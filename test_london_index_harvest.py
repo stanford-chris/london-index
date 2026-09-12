@@ -338,6 +338,59 @@ class Spotlight(unittest.TestCase):
         self.assertEqual([f['label'] for f in facts], ['Reported crimes', 'Most common: Burglary'])
 
 
+class BoroughMap(unittest.TestCase):
+    def test_boundary_file_names_match_the_harvester_exactly(self):
+        import london_index_card as card
+        b = card.load_boroughs()
+        self.assertEqual(set(b), set(H.ALL_BOROUGHS))
+        self.assertEqual(len(b), 33)
+        for name, rings in b.items():
+            self.assertTrue(rings and all(len(r) >= 4 for r in rings), name)
+
+    def test_every_town_hall_lies_inside_its_own_borough_outline(self):
+        # Ray casting against the outer rings; a coordinate that fails is a
+        # geocode that landed in the wrong borough (the Reading/Boveney Lock
+        # lesson from the river gauges), not a rounding error.
+        import london_index_card as card
+        b = card.load_boroughs()
+
+        def inside(pt, ring):
+            x, y = pt
+            hit = False
+            for i in range(len(ring)):
+                x1, y1 = ring[i - 1]
+                x2, y2 = ring[i]
+                if (y1 > y) != (y2 > y) and x < (x2 - x1) * (y - y1) / (y2 - y1) + x1:
+                    hit = not hit
+            return hit
+        for name, (lat, lng) in H.ALL_BOROUGHS.items():
+            self.assertTrue(any(inside((lng, lat), r) for r in b[name]), name)
+
+    def test_unknown_borough_refuses_to_draw(self):
+        import london_index_card as card
+        with self.assertRaises(card.CardRenderError):
+            card.render_borough_map('Narnia', (51.5, -0.1), '/tmp/x.png', boroughs={'A': [[(0, 0), (1, 0), (1, 1), (0, 1)]]})
+
+    def test_spotlight_facts_carry_the_pin(self):
+        facts = H.spotlight_facts('Sutton', [{'category': 'burglary'}] * 3, None, {}, '2026-07', 'u')
+        lat, lng = H.ALL_BOROUGHS['Sutton']
+        self.assertTrue(all(f['map_pin'] == {'name': 'Sutton', 'lat': lat, 'lng': lng} for f in facts))
+
+    def test_compose_passes_the_pin_through(self):
+        import london_index_compose as C
+        facts = H.spotlight_facts('Sutton', [{'category': 'burglary'}] * 3, None, {}, '2026-07', 'u')
+        for i, f in enumerate(facts):
+            f['id'] = f'x:{i}'
+            f['vein'] = 'police_spotlight'
+        c = C.compose({'opener': facts[0]['fixed_opener'], 'ids': [f['id'] for f in facts]}, facts)
+        self.assertEqual(c['map_pin']['name'], 'Sutton')
+        plain = H.central_facts([{'category': 'burglary'}] * 3, None, '2026-07', 'u')[:2]
+        for i, f in enumerate(plain):
+            f['id'] = f'y:{i}'
+            f['vein'] = 'police'
+        self.assertIsNone(C.compose({'opener': {'emoji': '', 'text': 'T'}, 'ids': [f['id'] for f in plain]}, plain)['map_pin'])
+
+
 class DatelineLead(unittest.TestCase):
     """compose() puts a fact's dateline_lead ahead of the date on the second
     line; a fact without one renders as before."""

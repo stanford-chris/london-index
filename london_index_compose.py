@@ -201,6 +201,9 @@ def compose(sel, pool):
         'sources': sources,
         'source_text': source_text,
         'period_credit': period_credit,
+        # A borough to highlight on a threaded map reply, when the facts
+        # ask for one (see fact()'s map_pin). Added 12 September 2026.
+        'map_pin': next((f['map_pin'] for f in picks if f.get('map_pin')), None),
         'primary_vein': picks[0]['vein'],
         'veins': sorted({f['vein'] for f in picks}),
     }

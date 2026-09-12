@@ -783,3 +783,29 @@ same. Measured: the 33-borough harvest takes about two minutes. First live
 pick: Barking and Dagenham, 921 crimes, violent crime 298, −1 percent on
 June, 16th of 33. The eight-borough ranked shapes stay as they were, on
 the eight. Tests: harvest 38, select 38.
+
+### The spotlight's map reply (12 September 2026)
+"Should we thread a map of London with the borough highlighted?" Yes, his
+call. `render_borough_map()` in `london_index_card.py`: the 33 borough
+outlines, the featured borough filled, its town hall dotted and a one-mile
+circle around it, no basemap. It is the honest picture of what "within a
+mile of the town hall" covers; the first render showed Barking's town hall
+on the borough's western edge with the circle spilling into Newham, which
+the card alone never said. Landscape, fitted to the outlines, after a
+square first frame left a third of the canvas empty. Boundaries are the
+ONS Local Authority Districts (December 2024) BGC from the Open Geography
+Portal's FeatureServer, WGS84 GeoJSON, the 33 E09 codes, committed at
+`data/london_boroughs.geojson` (256 KB) so no post depends on a live
+fetch. ⚠️ **Licence terms ride the reply text**: OGL v3.0 and "Contains OS
+data © Crown copyright and database right 2024", with the ONS linked. The
+Datastore's own boundary zip was checked first and is ESRI/MapInfo only
+(2013, BNG), which would have meant a shapefile parser and a projection
+with no pyshp, pyproj or matplotlib on this Mac; the ONS GeoJSON needed
+neither. `fact()` gained `map_pin`, compose passes the first pick's through
+as `map_pin`, and the poster threads the map between the card and the
+source link, continuing without it if the render fails (the card is
+already live). The spotlight's footnote is gone, his call ("I'm not sure I
+see the value"): the rank value says "of 33" and the map shows the sample.
+`test_every_town_hall_lies_inside_its_own_borough_outline` ray-casts all 33
+coordinates against the boundary file, the check the river-gauge mistake
+of 29 August taught; all 33 pass. Tests: harvest 43, select 38.
