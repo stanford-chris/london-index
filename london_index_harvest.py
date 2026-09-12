@@ -2505,7 +2505,7 @@ def harvest_reservoirs():
 # 2. TfL journeys by mode, per four-week reporting period.
 JOURNEYS_URL = 'https://data.london.gov.uk/download/ep8ow/06a805f6-77c6-481a-8b08-ddef56afffdd/tfl-journeys-type.csv'
 JOURNEYS_PAGE = 'https://data.london.gov.uk/dataset/public-transport-journeys-type-transport'
-JOURNEYS_NOTE = 'TfL counts journeys by four-week reporting period; figures in millions'
+JOURNEYS_NOTE = 'TfL counts journeys by four-week reporting period'
 JOURNEY_MODES = {'Bus journeys (m)': 'Bus', 'Underground journeys (m)': 'Underground',
                  'DLR Journeys (m)': 'DLR', 'Tram Journeys (m)': 'Tram',
                  'Overground Journeys (m)': 'Overground', 'London Cable Car Journeys (m)': 'Cable car',
