@@ -809,3 +809,12 @@ see the value"): the rank value says "of 33" and the map shows the sample.
 `test_every_town_hall_lies_inside_its_own_borough_outline` ray-casts all 33
 coordinates against the boundary file, the check the river-gauge mistake
 of 29 August taught; all 33 pass. Tests: harvest 43, select 38.
+
+### Dry run leaves state alone; a README (12 September 2026)
+`london_index_post.py --dry-run` no longer writes `london_index_state.json`:
+until now a hand rehearsal stamped its vein into `vein_last_at` (the 20-hour
+cooldown for the next real run) and its ids into `recent_ids`. Pinned by
+`test_london_index_post.py` (2 tests, everything network-shaped patched).
+And the repo gained a `README.md`, the one bot repo without one, which the
+weekly bot scout reads for truth against the account; plus the MIT `LICENSE`
+the other bot repos carry.

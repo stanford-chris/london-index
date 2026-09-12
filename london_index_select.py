@@ -589,9 +589,10 @@ def update_state(state, sel):
     apply_cooldown() and promote_starved() above). A mixed-vein pick stamps
     no vein, since there is no single vein to credit for it.
 
-    Shared by both save points in london_index_post.py (dry-run and live)
-    and by this file's own main(), so the two state fields can't drift out
-    of sync the way three separate inline updates risked.
+    Shared by london_index_post.py's live save point and by this file's own
+    main(), so the two state fields can't drift out of sync the way separate
+    inline updates risked. A --dry-run in either writes nothing, since
+    12 September 2026.
     """
     state['recent_ids'] = (state.get('recent_ids', []) + sel['ids'])[-RECENT_IDS_KEEP:]
     if sel.get('vein'):

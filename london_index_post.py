@@ -147,8 +147,12 @@ def main():
             print(f'\n(dry run — wrote {out_path} at {size[0]}x{size[1]}, not posting)')
         else:
             print('\n(dry run — not posting)')
-        state = select_mod.update_state(state, sel)
-        write_json_atomic(STATE, state, indent=2)
+        # The state file is NOT written on a dry run, since 12 September
+        # 2026. Until then it was, so a hand dry-run at 9:00 stamped that
+        # vein into vein_last_at and put it on the 20-hour cooldown for the
+        # 12:30 run, and its ids into recent_ids: a rehearsal changing the
+        # performance. Only a real post changes state.
+        print('(dry run — state file untouched)')
         return
 
     password = keychain_password(HANDLE, KEYCHAIN_SERVICE)
