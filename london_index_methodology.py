@@ -75,16 +75,19 @@ INTRO = ("This account provides a portrait of London, drawn from the city's own 
          "the posts. Every publisher is credited at the end of this thread.")
 COUNTS = ("Counts appear exactly as published: bikes and docking points, river "
           "levels against their own typical range, reported crimes, air quality "
-          "readings, museum visitor totals. Nothing here is estimated or modelled "
-          "by this account itself.")
-# TfL does not document what "baseline" means beyond "a station's own typical
-# level" (checked 30 August 2026: no public definition of the window or method
-# behind percentageOfBaseline), so this deliberately claims nothing more
-# specific than harvest_tfl_crowding()'s own docstring does.
-CROWDING = ("Station crowding is not a headcount. TfL reports it as a percentage "
-            "of that station's own typical baseline, from an undocumented "
-            "live-footfall endpoint: read it as relative and directional, not as "
-            "a number of people.")
+          "readings, museum visitor totals, station entries and exits, house "
+          "prices, trains due. Nothing here is estimated or modelled by this "
+          "account itself.")
+# tfl_crowding (TfL's undocumented, relative-to-itself /crowding/Live
+# endpoint) is paused as of 31 August 2026 - see HARVESTERS in
+# london_index_harvest.py for why - and station_usage/daily_footfall took
+# its place: real gate taps, not a relative percentage. This card describes
+# what the account now actually posts, not the retired vein.
+STATIONS = ("Station figures come in two grains: a whole year's total (TfL's own "
+            "Annual Station Counts), or the most recent single day TfL has "
+            "published, network-wide. Both are real gate taps, not modelled; "
+            "entries and exits are counted separately, so a return trip counts "
+            "twice.")
 # "13 ... out of 18" is LONDON_DCMS_MUSEUMS against the full row count in
 # london_index_harvest.py's Table 1 parse — update both together if DCMS adds
 # or drops a sponsored institution.
@@ -96,7 +99,7 @@ MUSEUMS = ("Museum visitor totals are the Department for Culture, Media and "
 CARDS = [
     {'heading': 'About this account', 'emoji': '\U0001f1ec\U0001f1e7', 'body': [INTRO]},
     {'heading': 'About the figures', 'emoji': '\U0001f9ee', 'body': [COUNTS]},
-    {'heading': 'About the crowding figures', 'emoji': '\U0001f465', 'body': [CROWDING]},
+    {'heading': 'About the station figures', 'emoji': '\U0001f687', 'body': [STATIONS]},
     {'heading': 'About the museum figures', 'emoji': '\U0001f5bc️', 'body': [MUSEUMS]},
 ]
 
@@ -108,14 +111,31 @@ CARDS = [
 # never mistaken by _source_tb() for the "gov.uk" substring already inside
 # environment.data.gov.uk and data.london.gov.uk earlier in the same line.
 SOURCE_PREFIX = 'Sources: '
-SOURCE_LINE = (SOURCE_PREFIX + 'tfl.gov.uk, environment.data.gov.uk, data.police.uk, '
-               'data.london.gov.uk, londonair.org.uk, www.gov.uk')
+SOURCE_LINE = (SOURCE_PREFIX + 'tfl.gov.uk, crowding.data.tfl.gov.uk, '
+               'environment.data.gov.uk, data.police.uk, '
+               'data.london.gov.uk, londonair.org.uk, www.gov.uk, '
+               'landregistry.data.gov.uk, nationalrail.co.uk')
+# landregistry.data.gov.uk (UK House Price Index) and nationalrail.co.uk
+# (Rail Delivery Group's Live Departure Board, whose licence requires the
+# credit) added 12 September 2026 with the house_prices and rail_departures
+# veins. Neither is a substring of another listed domain, nor contains one:
+# 'data.gov.uk' and 'gov.uk' are never listed bare. Facet byte-ranges were
+# checked against the rendered text on the dry run before posting.
+# 'crowding.data.tfl.gov.uk' contains 'tfl.gov.uk' as a substring - the exact
+# hazard _source_tb()'s own docstring warns about. Safe only because
+# 'tfl.gov.uk' is listed FIRST in SOURCE_LINE, so .find('tfl.gov.uk') locates
+# the standalone occurrence before the embedded one; verified 1 September
+# 2026 by actually running _source_tb() and checking the facet byte-ranges
+# against the rendered text, not just reasoning about it.
 SOURCE_DOMAINS = [('tfl.gov.uk', 'https://tfl.gov.uk'),
+                  ('crowding.data.tfl.gov.uk', 'https://crowding.data.tfl.gov.uk'),
                   ('environment.data.gov.uk', 'https://environment.data.gov.uk'),
                   ('data.police.uk', 'https://data.police.uk'),
                   ('data.london.gov.uk', 'https://data.london.gov.uk'),
                   ('londonair.org.uk', 'https://www.londonair.org.uk'),
-                  ('www.gov.uk', 'https://www.gov.uk')]
+                  ('www.gov.uk', 'https://www.gov.uk'),
+                  ('landregistry.data.gov.uk', 'https://landregistry.data.gov.uk/app/ukhpi'),
+                  ('nationalrail.co.uk', 'https://www.nationalrail.co.uk')]
 
 
 def _alt(card):
