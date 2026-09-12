@@ -330,6 +330,7 @@ FIXED_OPENERS = {
     ('lift_releases', 'lifts_all'): {'emoji': '🚒', 'text': 'People stuck in lifts'},
     ('lfb_incidents', 'lfb_all'): {'emoji': '🚒', 'text': 'The London Fire Brigade’s month'},
     ('events', 'events_all'): {'emoji': '🎭', 'text': 'On sale in London'},
+    ('events', 'venues_top'): {'emoji': '🎭', 'text': 'Most on sale, by venue'},
 }
 
 

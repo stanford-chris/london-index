@@ -108,7 +108,14 @@ dcms_museums added 30 August):
   events        - Ticketmaster's Discovery API: what is on sale in London for
                   the next seven days, by segment, plus the next 24 hours
                   and 30 days. Live. Key in Keychain (london-index /
-                  ticketmaster-api-key). Added 12 September 2026.
+                  ticketmaster-api-key). Added 12 September 2026. The
+                  week's listings are also paged for the busiest day and
+                  the venues with the most on sale.
+  museum_spotlight - the same DCMS release, one of the 13 London museums per
+                  card, least recently featured first: visitors, change on
+                  the year before, ten years earlier, and for the same year
+                  overseas visitors, under-16s, website visits, the share
+                  who would recommend a visit and admissions income.
 
 Usage:
     python3 london_index_harvest.py            # pool as pretty JSON
@@ -1616,6 +1623,122 @@ LONDON_DCMS_MUSEUMS = {
 DCMS_MUSEUMS_ODS_URL = (
     'https://assets.publishing.service.gov.uk/media/69e8eb88606c20d412163287/'
     'DCMS_sponsored_museums_and_galleries_annual_performance_indicators_2024_25_tables.ods')
+
+
+_DCMS_MEMO = {}
+# The tables the museum spotlight reads beside Table 1 (total visitors):
+# sheet name -> (label, formatter). Only a value for the SAME year as the
+# museum's latest published total is used, so one card is one year.
+DCMS_SPOTLIGHT_TABLES = {
+    '4': ('Overseas visitors', lambda v: f'{int(round(v)):,}'),
+    '3': ('Under-16s', lambda v: f'{int(round(v)):,}'),
+    '5': ('Website visits', lambda v: f'{int(round(v)):,}'),
+    '6': ('Would recommend a visit', lambda v: f'{v * 100:.0f}%'),
+    '10': ('Admissions income', lambda v: f'£{v / 1e6:.1f} million'),
+}
+
+
+def dcms_table(sheet):
+    """One DCMS sheet as {museum: {year_label: value}} for the London
+    museums, plus the ordered list of year labels ('2024-25'). Downloads the
+    ODS once per process. None if the sheet cannot be read."""
+    if 'path' not in _DCMS_MEMO:
+        td = tempfile.mkdtemp()
+        path = Path(td) / 'dcms_museums.ods'
+        result = subprocess.run(
+            ['curl', '-sS', '-L', '--max-time', '30', '-o', str(path), DCMS_MUSEUMS_ODS_URL],
+            capture_output=True)
+        _DCMS_MEMO['path'] = path if result.returncode == 0 and path.exists() else None
+    path = _DCMS_MEMO['path']
+    if path is None:
+        return None
+    if sheet in _DCMS_MEMO:
+        return _DCMS_MEMO[sheet]
+    try:
+        import pandas as pd
+        df = pd.read_excel(path, engine='odf', sheet_name=sheet, header=None)
+    except Exception:  # noqa: BLE001 - a missing sheet or engine is "cannot read"
+        _DCMS_MEMO[sheet] = None
+        return None
+    header_row = None
+    for i in range(len(df)):
+        if str(df.iloc[i, 0]).strip() == 'Name of museum or gallery':
+            header_row = i
+            break
+    if header_row is None:
+        _DCMS_MEMO[sheet] = None
+        return None
+    headers = [str(c).strip() for c in df.iloc[header_row, :]]
+    years = []
+    for i, hd in enumerate(headers):
+        m = re.match(r'^(\d{4})/(\d{2})', hd)
+        if m:
+            years.append((i, f'{m.group(1)}-{m.group(2)}'))
+    table = {}
+    for i in range(header_row + 1, len(df)):
+        raw = df.iloc[i, 0]
+        if not isinstance(raw, str):
+            continue
+        name = re.sub(r'\s*\[Note \d+\]\s*$', '', raw).strip()
+        if name not in LONDON_DCMS_MUSEUMS:
+            continue
+        row = {}
+        for idx, label in years:
+            v = df.iloc[i, idx]
+            if isinstance(v, (int, float)) and v == v:   # a number, not NaN
+                row[label] = float(v)
+        table[name] = row
+    _DCMS_MEMO[sheet] = (table, [label for _, label in years])
+    return _DCMS_MEMO[sheet]
+
+
+MUSEUM_LEAD = 'One of the 13 DCMS-sponsored museums in London'
+MUSEUM_NOTE = 'DCMS’s annual performance indicators; a group is counted across all its sites'
+DCMS_PAGE = ('https://www.gov.uk/government/statistics/'
+             'dcms-sponsored-museums-and-galleries-annual-performance-indicators-202425')
+
+
+def museum_facts(name, visitors, years, extras, url=DCMS_PAGE):
+    """One museum's card. `visitors` is its {year: value} from Table 1,
+    `years` the ordered year labels, `extras` {label: value string} for the
+    same year from the other tables. Pair "museum_all", opener the museum's
+    published name."""
+    published = [y for y in years if y in visitors]
+    if not published:
+        raise ValueError(f'no published visitor figure for {name}')
+    year = published[-1]
+    opener = {'emoji': '🏛️', 'text': name}
+    mk = lambda v, label: fact(v, label, 'DCMS', url, period=year, pair='museum_all',
+                               context_note=MUSEUM_NOTE, dateline_lead=MUSEUM_LEAD, fixed_opener=opener)
+    facts = [mk(f'{int(visitors[year]):,}', 'Visitors')]
+    i = years.index(year)
+    if i >= 1 and years[i - 1] in visitors:
+        change = _pct_change(visitors[year], visitors[years[i - 1]])
+        if change is not None:
+            facts.append(mk(change, f'Change on {years[i - 1]}'))
+    if i >= 10 and years[i - 10] in visitors:
+        facts.append(mk(f'{int(visitors[years[i - 10]]):,}', f'Visitors in {years[i - 10]}'))
+    for label, value in extras.items():
+        facts.append(mk(value, label))
+    return facts
+
+
+def harvest_museum_spotlight():
+    t1 = dcms_table('1')
+    if not t1:
+        return [], 'DCMS museums table 1 could not be read'
+    table, years = t1
+    candidates = [n for n, row in table.items() if row]
+    if not candidates:
+        return [], 'no London museum has a published visitor figure'
+    name = spotlight_pick(candidates, last_featured('', LONDON_DCMS_MUSEUMS))
+    year = [y for y in years if y in table[name]][-1]
+    extras = {}
+    for sheet, (label, fmt) in DCMS_SPOTLIGHT_TABLES.items():
+        tb = dcms_table(sheet)
+        if tb and name in tb[0] and year in tb[0][name]:
+            extras[label] = fmt(tb[0][name][year])
+    return museum_facts(name, table[name], years, extras), None
 
 
 def harvest_dcms_museums():
@@ -3160,6 +3283,55 @@ def _tm_total(key, **params):
     return d['page'].get('totalElements')
 
 
+def _tm_listings(key, start, end):
+    """Every London listing in the window, paged per segment at 200 a page
+    (the API's deep-paging cap is 1,000 items a query, and a week of London
+    is over that, but no segment is). Listings flagged `test` are dropped.
+    Returns (listings, complete): complete is False if any page failed."""
+    listings = []
+    complete = True
+    for seg in [s for s, _ in TM_SEGMENTS] + ['Film', 'Undefined']:
+        page = 0
+        while True:
+            q = dict(apikey=key, city='London', countryCode='GB', size=200, page=page,
+                     startDateTime=start, endDateTime=end, segmentName=seg)
+            d = get_json(TM_URL + '?' + urllib.parse.urlencode(q), timeout=30)
+            if not isinstance(d, dict) or 'page' not in d:
+                complete = False
+                break
+            listings += [e for e in d.get('_embedded', {}).get('events', []) if not e.get('test')]
+            if page + 1 >= d['page'].get('totalPages', 0) or page >= 4:
+                break
+            page += 1
+    return listings, complete
+
+
+def events_listing_facts(listings, url=TM_PAGE):
+    """From the week's listings: the venues with the most performances
+    (venues_top, ranked, top four) and the busiest day (into events_all)."""
+    venues = {}
+    days = {}
+    for e in listings:
+        v = (e.get('_embedded', {}).get('venues') or [{}])[0].get('name')
+        if v:
+            venues[v] = venues.get(v, 0) + 1
+        day = (e.get('dates', {}).get('start') or {}).get('localDate')
+        if day:
+            days[day] = days.get(day, 0) + 1
+    facts = []
+    if days:
+        day, n = max(days.items(), key=lambda kv: (kv[1], kv[0]))
+        d = datetime.strptime(day, '%Y-%m-%d')
+        facts.append(fact(f'{n:,}', f'Busiest day: {d.strftime("%A")} {d.day} {d.strftime("%B")}',
+                          TM_SOURCE, url, pair='events_all', context_note=TM_NOTE, dateline_lead=TM_LEAD))
+    ranked = sorted(venues.items(), key=lambda kv: (-kv[1], kv[0]))[:4]
+    if len(ranked) == 4:
+        for v, n in ranked:
+            facts.append(fact(f'{n:,}', v, TM_SOURCE, url, pair='venues_top', context_note=TM_NOTE,
+                              dateline_lead=TM_LEAD))
+    return facts
+
+
 def events_facts(counts, url=TM_PAGE):
     """`counts`: {'week': n, 'day': n, 'month': n, 'segments': {segment: n}}.
     Pair "events_all", fixed opener; live, so the second line carries the
@@ -3192,12 +3364,19 @@ def harvest_events():
               'day': _tm_total(key, startDateTime=start, endDateTime=(now + timedelta(days=1)).strftime(fmt)),
               'month': _tm_total(key, startDateTime=start, endDateTime=(now + timedelta(days=30)).strftime(fmt)),
               'segments': {}}
+    week_end = (now + timedelta(days=7)).strftime(fmt)
     for seg, _label in TM_SEGMENTS:
-        n = _tm_total(key, startDateTime=start, endDateTime=(now + timedelta(days=7)).strftime(fmt),
-                      segmentName=seg)
+        n = _tm_total(key, startDateTime=start, endDateTime=week_end, segmentName=seg)
         if n is not None:
             counts['segments'][seg] = n
-    return events_facts(counts), None
+    facts = events_facts(counts)
+    # The week's listings themselves, for the busiest day and the venues:
+    # about ten more calls. An incomplete page set drops these shapes rather
+    # than ranking venues from part of a week.
+    listings, complete = _tm_listings(key, start, week_end)
+    if complete and listings:
+        facts += events_listing_facts(listings)
+    return facts, None
 
 
 HARVESTERS = {
@@ -3249,6 +3428,7 @@ HARVESTERS = {
     'lift_releases': harvest_lift_releases,
     'lfb_incidents': harvest_lfb_incidents,
     'events': harvest_events,
+    'museum_spotlight': harvest_museum_spotlight,
 }
 
 

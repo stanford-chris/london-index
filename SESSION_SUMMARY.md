@@ -955,3 +955,26 @@ other". Counts only are published, never listing content. Fixed opener
 "On sale in London", lead "Ticketmaster listings, next seven days".
 ticketmaster.co.uk joined the pinned thread's sources (11 domains, 232
 characters). 27 veins. Tests: harvest 71.
+
+### Ticketmaster extensions and the museum spotlight (12 September 2026)
+"Do the Ticketmaster extensions and the museum spotlight." ⚠️ **Ticketmaster's
+UK listings carry no `priceRanges` at all** (0 of 127 music listings on
+12 September), so the median-ticket-price idea died at the probe; venues and
+dates are there. `_tm_listings()` pages the week per segment at 200 a page
+(the API caps deep paging at 1,000 items a query; a London week is over that,
+no segment is) and drops listings flagged `test`; `events_listing_facts()`
+gives the busiest day (into events_all) and `venues_top`, the four venues
+with most on sale, made only when four venues exist and every page answered.
+About seventeen calls a run against 5,000 a day. **Museum spotlight**: the
+DCMS release has twelve tables, not one; `dcms_table()` reads any of them
+into {museum: {year: value}} with the ODS downloaded once per process
+(`_DCMS_MEMO`), and `museum_spotlight` walks the 13 London museums, least
+recently featured first (opener = DCMS's own name, so the rotation prefix is
+empty), with visitors, change on the year before, the figure ten years
+earlier and, for the SAME year only, overseas visitors, under-16s, website
+visits, the share who would recommend a visit and admissions income
+(`DCMS_SPOTLIGHT_TABLES`). ⚠️ A museum's latest published year decides the
+card: British Museum has 2024-25 visitors but no 2024-25 recommendation
+figure, so that line is simply absent rather than borrowed from 2023-24.
+The real file is in `scratch/` and a test parses it. 28 veins. Tests:
+harvest 76.

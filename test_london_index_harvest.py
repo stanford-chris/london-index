@@ -730,6 +730,60 @@ class Events(unittest.TestCase):
         self.assertEqual(facts, []); self.assertIn('seven-day total', err)
 
 
+class EventsListingsAndMuseums(unittest.TestCase):
+    def ev(self, venue, day, test=False):
+        return {'_embedded': {'venues': [{'name': venue}]}, 'dates': {'start': {'localDate': day}}, 'test': test}
+
+    def test_listing_facts_busiest_day_and_venues(self):
+        L = [self.ev('A', '2026-09-18')] * 5 + [self.ev('B', '2026-09-12')] * 3 + \
+            [self.ev('C', '2026-09-18')] * 2 + [self.ev('D', '2026-09-13')]
+        facts = H.events_listing_facts(L)
+        self.assertEqual((facts[0]['label'], facts[0]['value'], facts[0]['pair']),
+                         ('Busiest day: Friday 18 September', '7', 'events_all'))
+        self.assertEqual([(f['label'], f['value']) for f in facts if f['pair'] == 'venues_top'],
+                         [('A', '5'), ('B', '3'), ('C', '2'), ('D', '1')])
+
+    def test_fewer_than_four_venues_means_no_venue_ranking(self):
+        facts = H.events_listing_facts([self.ev('A', '2026-09-18')] * 3)
+        self.assertEqual([f['pair'] for f in facts], ['events_all'])
+
+    def test_museum_facts(self):
+        years = [f'{y}-{str(y + 1)[2:]}' for y in range(2008, 2025)]   # 2008-09 .. 2024-25
+        visitors = {y: 6_000_000 for y in years}
+        visitors['2024-25'] = 6_474_734; visitors['2023-24'] = 6_159_856; visitors['2014-15'] = 6_695_213
+        extras = {'Overseas visitors': '3,822,175', 'Would recommend a visit': '93%'}
+        facts = H.museum_facts('British Museum', visitors, years, extras)
+        self.assertEqual([(f['label'], f['value']) for f in facts],
+                         [('Visitors', '6,474,734'), ('Change on 2023-24', '+5%'),
+                          ('Visitors in 2014-15', '6,695,213'), ('Overseas visitors', '3,822,175'),
+                          ('Would recommend a visit', '93%')])
+        for f in facts:
+            self.assertEqual(f['fixed_opener'], {'emoji': '🏛️', 'text': 'British Museum'})
+            self.assertEqual(f['period'], '2024-25'); self.assertEqual(f['pair'], 'museum_all')
+
+    def test_museum_uses_its_latest_published_year(self):
+        years = ['2022-23', '2023-24', '2024-25']
+        facts = H.museum_facts('Wallace Collection', {'2022-23': 400000, '2023-24': 450000}, years, {})
+        self.assertEqual(facts[0]['period'], '2023-24')
+        self.assertEqual(facts[1]['label'], 'Change on 2022-23')
+        with self.assertRaises(ValueError):
+            H.museum_facts('X', {}, years, {})
+
+    def test_dcms_table_reads_the_real_file_shape(self):
+        # scratch/ holds the 2024/25 release; the same parser the vein runs.
+        import glob
+        paths = glob.glob(str(Path(__file__).resolve().parent / 'scratch' / 'DCMS_museums_2024_25_tables.ods'))
+        if not paths:
+            self.skipTest('no local DCMS file')
+        H._DCMS_MEMO.clear(); H._DCMS_MEMO['path'] = Path(paths[0])
+        table, years = H.dcms_table('1')
+        self.assertEqual(years[-1], '2024-25'); self.assertIn('British Museum', table)
+        self.assertEqual(int(table['British Museum']['2023-24']), 6159856)
+        t6, _ = H.dcms_table('6')
+        self.assertAlmostEqual(t6['British Museum']['2023-24'], 0.96)
+        H._DCMS_MEMO.clear()
+
+
 class DatelineLead(unittest.TestCase):
     """compose() puts a fact's dateline_lead ahead of the date on the second
     line; a fact without one renders as before."""

@@ -66,7 +66,8 @@ The title names what is measured ("Reported crime", "House prices, by borough").
 | `unemployment` | London Datastore: ONS unemployment rate, London against the UK, rolling quarter | quarterly |
 | `lift_releases` | London Datastore: people freed from lifts by the fire brigade, by month and borough | monthly |
 | `lfb_incidents` | London Datastore: every London Fire Brigade incident, by month: fires, false alarms, special services, first engine's time to arrive, notional cost | monthly, cached from the 81 MB file |
-| `events` | Ticketmaster Discovery API: what is on sale in London for the next seven days, by segment, and the next 24 hours and 30 days | live |
+| `events` | Ticketmaster Discovery API: what is on sale in London for the next seven days, by segment, the busiest day and the venues with most on sale, and the next 24 hours and 30 days | live |
+| `museum_spotlight` | the DCMS release: one of the 13 London museums per card, its visitors, change, ten years earlier, overseas and under-16 visitors, website visits, recommendation rate and admissions income | yearly |
 
 A daily weather card (`london_weather_post.py`) uses the Met Office Weather DataHub and posts separately.
 
