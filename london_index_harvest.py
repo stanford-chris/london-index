@@ -1891,7 +1891,9 @@ RAIL_SOURCE = 'National Rail (Rail Delivery Group)'
 RAIL_PAGE = 'https://www.nationalrail.co.uk/'
 # "Stations", not "termini", on the card and in this note: Chris's wording,
 # 12 September 2026, since termini is railway jargon to most readers.
-RAIL_NOTE = (f'National Rail trains due in the next {RAIL_WINDOW_MIN} minutes from '
+# "Departing", never "due": Chris read "Trains due within the hour" as
+# arrivals (12 September 2026), and the board is GetDepartureBoard.
+RAIL_NOTE = (f'National Rail departures in the next {RAIL_WINDOW_MIN} minutes from '
              f'{len(RAIL_TERMINI)} of London’s main stations, as on the live boards')
 RAIL_TOP_N = 4
 # Under this many departures across every terminus the boards are the
@@ -1940,9 +1942,9 @@ def classify_departure(svc):
 def rail_facts(boards, url=RAIL_PAGE):
     """`boards` maps terminus name -> list of train services (the board's
     trainServices). Two shapes:
-      - "rail_all": trains due within the hour, on time, running late,
+      - "rail_all": trains departing within the hour, on time, running late,
         cancelled (any 2 to 4, fixed opener)
-      - "rail_top": the RAIL_TOP_N termini with the most departures due,
+      - "rail_top": the RAIL_TOP_N termini with the most departures,
         ranked"""
     mk = lambda v, label, pair: fact(f'{v:,}', label, RAIL_SOURCE, url, pair=pair,
                                      context_note=RAIL_NOTE)
@@ -1953,7 +1955,7 @@ def rail_facts(boards, url=RAIL_PAGE):
         for svc in services:
             counts[classify_departure(svc)] += 1
     total = sum(per.values())
-    facts = [mk(total, 'Trains due within the hour', 'rail_all'),
+    facts = [mk(total, 'Departing within the hour', 'rail_all'),
              mk(counts['on time'], 'On time', 'rail_all'),
              mk(counts['late'], 'Running late', 'rail_all'),
              mk(counts['cancelled'], 'Cancelled', 'rail_all')]

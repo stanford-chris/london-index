@@ -239,7 +239,7 @@ class RailFacts(unittest.TestCase):
                   'Victoria': [self.svc('09:30', 'On time')]}
         facts = H.rail_facts(boards)
         self.assertEqual([(f['label'], f['value'], f['pair']) for f in facts],
-                         [('Trains due within the hour', '11', 'rail_all'), ('On time', '8', 'rail_all'),
+                         [('Departing within the hour', '11', 'rail_all'), ('On time', '8', 'rail_all'),
                           ('Running late', '1', 'rail_all'), ('Cancelled', '1', 'rail_all'),
                           ('Waterloo', '6', 'rail_top'), ('Euston', '3', 'rail_top'),
                           ('Moorgate', '1', 'rail_top'), ('Victoria', '1', 'rail_top')])
