@@ -1694,8 +1694,13 @@ def dcms_table(sheet):
 
 # Spelled out, his call 12 September 2026 ("what is dcms"): the same objection
 # as MOPAC, an acronym a reader may not know.
-MUSEUM_LEAD = 'Sponsored by the Department for Culture, Media and Sport'
-MUSEUM_NOTE = 'One of 13 London museums the department funds; a group counts all its sites'
+# His call, later the same day: the year alone under the title, the
+# sponsorship in the footnote. Groups (Tate, Science Museum Group, Imperial
+# War Museums, Royal Museums Greenwich) get the sites clause instead of the
+# "one of 13", so the footnote stays one line either way.
+MUSEUM_LEAD = None
+MUSEUM_NOTE = 'Sponsored by the Department for Culture, Media and Sport; one of 13 in London'
+MUSEUM_NOTE_GROUP = 'Sponsored by the Department for Culture, Media and Sport; all its sites counted'
 DCMS_PAGE = ('https://www.gov.uk/government/statistics/'
              'dcms-sponsored-museums-and-galleries-annual-performance-indicators-202425')
 
@@ -1710,8 +1715,9 @@ def museum_facts(name, visitors, years, extras, url=DCMS_PAGE):
         raise ValueError(f'no published visitor figure for {name}')
     year = published[-1]
     opener = {'emoji': '🏛️', 'text': name}
+    note = MUSEUM_NOTE_GROUP if ('Group' in name or 'Museums' in name) else MUSEUM_NOTE
     mk = lambda v, label: fact(v, label, 'DCMS', url, period=year, pair='museum_all',
-                               context_note=MUSEUM_NOTE, dateline_lead=MUSEUM_LEAD, fixed_opener=opener)
+                               context_note=note, dateline_lead=MUSEUM_LEAD, fixed_opener=opener)
     facts = [mk(f'{int(visitors[year]):,}', 'Visitors')]
     i = years.index(year)
     if i >= 1 and years[i - 1] in visitors:
