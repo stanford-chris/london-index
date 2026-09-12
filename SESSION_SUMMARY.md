@@ -858,3 +858,10 @@ the other bot repos carry.
   not cache a missing-key refusal, and tests clear both memos in `setUp`:
   the first run of the suite had one test's no-key result served to the
   next. 19 veins now. Tests: harvest 52, select 38, post 2.
+
+### Pinned thread, second repost of the day (12 September 2026)
+A fifth card, "About the crime figures", between the station and museum
+cards: how the borough counts are made now (whole boroughs, the police's
+own categories, about two months behind, central London within a mile of
+Trafalgar Square, the map fills the borough counted). Reposted with
+`--replace`; six posts live, nine source facets, old thread deleted.
