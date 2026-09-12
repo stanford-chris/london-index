@@ -76,8 +76,10 @@ INTRO = ("This account provides a portrait of London, drawn from the city's own 
 COUNTS = ("Counts appear exactly as published: bikes and docking points, river "
           "levels against their own typical range, reported crimes, air quality "
           "readings, museum visitor totals, station entries and exits, house "
-          "prices, trains due. Nothing here is estimated or modelled by this "
-          "account itself.")
+          "prices, trains departing, reservoir levels, TfL journeys, arrests, "
+          "unemployment. Nothing here is estimated or modelled by this account "
+          "itself; where a publisher's figure is itself an estimate, the card "
+          "says whose.")
 # tfl_crowding (TfL's undocumented, relative-to-itself /crowding/Live
 # endpoint) is paused as of 31 August 2026 - see HARVESTERS in
 # london_index_harvest.py for why - and station_usage/daily_footfall took
@@ -126,7 +128,7 @@ SOURCE_PREFIX = 'Sources: '
 SOURCE_LINE = (SOURCE_PREFIX + 'tfl.gov.uk, crowding.data.tfl.gov.uk, '
                'environment.data.gov.uk, data.police.uk, '
                'data.london.gov.uk, londonair.org.uk, www.gov.uk, '
-               'landregistry.data.gov.uk, nationalrail.co.uk')
+               'landregistry.data.gov.uk, nationalrail.co.uk, geoportal.statistics.gov.uk')
 # landregistry.data.gov.uk (UK House Price Index) and nationalrail.co.uk
 # (Rail Delivery Group's Live Departure Board, whose licence requires the
 # credit) added 12 September 2026 with the house_prices and rail_departures
@@ -147,7 +149,12 @@ SOURCE_DOMAINS = [('tfl.gov.uk', 'https://tfl.gov.uk'),
                   ('londonair.org.uk', 'https://www.londonair.org.uk'),
                   ('www.gov.uk', 'https://www.gov.uk'),
                   ('landregistry.data.gov.uk', 'https://landregistry.data.gov.uk/app/ukhpi'),
-                  ('nationalrail.co.uk', 'https://www.nationalrail.co.uk')]
+                  ('nationalrail.co.uk', 'https://www.nationalrail.co.uk'),
+                  # The borough outlines under every map reply, added 12 September
+                  # 2026 with the seven Datastore series (which credit
+                  # data.london.gov.uk, already listed). Not a substring of any other
+                  # listed domain: 'statistics.gov.uk' and 'gov.uk' are never listed bare.
+                  ('geoportal.statistics.gov.uk', 'https://geoportal.statistics.gov.uk')]
 
 
 def _alt(card):
