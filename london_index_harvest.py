@@ -1700,8 +1700,8 @@ def dcms_table(sheet):
 # "one of 13", so the footnote stays one line either way.
 MUSEUM_LEAD = None
 # His wording, 12 September 2026.
-MUSEUM_NOTE = 'One of 13 London museums funded by the Department for Culture, Media and Sport.'
-MUSEUM_NOTE_GROUP = MUSEUM_NOTE[:-1] + '; all its sites counted.'
+MUSEUM_NOTE = 'One of 13 London museums funded by the Department for Culture, Media and Sport'
+MUSEUM_NOTE_GROUP = MUSEUM_NOTE + '; all its sites counted'   # no full stop: footnotes here carry none
 DCMS_PAGE = ('https://www.gov.uk/government/statistics/'
              'dcms-sponsored-museums-and-galleries-annual-performance-indicators-202425')
 
