@@ -82,5 +82,30 @@ class CardAlt(unittest.TestCase):
         self.assertIn('        alt = card_alt(c)\n', src)
 
 
+class LoginRetry(unittest.TestCase):
+    def test_retries_then_succeeds_without_sleeping_for_real(self):
+        calls = []
+        slept = []
+
+        class Flaky:
+            n = 0
+            def login(self, handle, password):
+                Flaky.n += 1
+                calls.append(Flaky.n)
+                if Flaky.n < 3:
+                    raise TimeoutError('read timed out')
+        client = P.login_with_retry(Flaky, 'h', 'p', sleep=slept.append)
+        self.assertIsInstance(client, Flaky)
+        self.assertEqual(calls, [1, 2, 3])
+        self.assertEqual(slept, [15, 45])
+
+    def test_gives_up_after_three_and_raises_the_last_error(self):
+        class Bad:
+            def login(self, handle, password):
+                raise ValueError('bad password')
+        with self.assertRaises(ValueError):
+            P.login_with_retry(Bad, 'h', 'p', sleep=lambda s: None)
+
+
 if __name__ == '__main__':
     unittest.main()

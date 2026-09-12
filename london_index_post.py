@@ -51,6 +51,35 @@ def keychain_password(account, service):
     return r.stdout.strip()
 
 
+LOGIN_ATTEMPTS = 3
+LOGIN_DELAYS = (15, 45)   # seconds between attempts
+
+
+def login_with_retry(client_cls, handle, password, attempts=LOGIN_ATTEMPTS, delays=LOGIN_DELAYS,
+                     sleep=time.sleep):
+    """A logged-in client, or the last exception re-raised after `attempts`
+    tries. Added 12 September 2026 after the 08:00 BST run harvested for six
+    minutes, composed and rendered a card, then died at bsky.login() on a
+    single httpx ReadTimeout with no retry: a transient blip cost the whole
+    slot. Any exception is retried, since the point is the class of fault
+    (a timeout, a reset, a 5xx) and a genuinely bad password fails all three
+    times and is raised just the same."""
+    last = None
+    for i in range(attempts):
+        try:
+            client = client_cls()
+            client.login(handle, password)
+            return client
+        except Exception as e:  # noqa: BLE001 - see the docstring
+            last = e
+            if i < attempts - 1:
+                delay = delays[min(i, len(delays) - 1)]
+                print(f'Bluesky login failed ({type(e).__name__}); retrying in {delay}s '
+                      f'({i + 2} of {attempts}).', file=sys.stderr)
+                sleep(delay)
+    raise last
+
+
 def write_json_atomic(path, data, **dumps_kwargs):
     tmp = path.with_name(path.name + '.tmp')
     tmp.write_text(json.dumps(data, **dumps_kwargs))
@@ -175,8 +204,7 @@ def main():
     password = keychain_password(HANDLE, KEYCHAIN_SERVICE)
 
     from atproto import Client, client_utils, models
-    bsky = Client()
-    bsky.login(HANDLE, password)
+    bsky = login_with_retry(Client, HANDLE, password)
 
     posted_uri = None
     if not fallback:
