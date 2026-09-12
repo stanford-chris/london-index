@@ -292,6 +292,119 @@ FIXED_OPENERS = {
 }
 
 
+# --- Spent facts: a figure is posted once per value -------------------
+# Added 12 September 2026, the morning after the same borough card went out
+# at 12:30 and 17:30 BST on 11 September, byte-identical (bsky.app/.../
+# 3mvahvdld5f27 and .../3mvayox7dnd24). Of the 44 cards posted by then only
+# 34 were distinct; the two crime cards alone were 9 of the last 12 posts,
+# because data.police.uk is monthly and "Most: Camden" / "Fewest: Bromley" /
+# "Most common: Other theft" are the extremes for the whole month. The only
+# guard at fact level was AVOID_IDS, a soft instruction the model ignored
+# both times once the pool had narrowed to four veins.
+#
+# The rule is the data's own: a fact already posted with this label AND this
+# value is spent, and stays out of the pool until the value changes. A live
+# vein's values change every run, so it is never spent; a monthly vein's
+# facts are spent for the rest of the month, an annual vein's for the year.
+# A pair group loses the WHOLE group if any member is spent, since a ranked
+# list missing its top entry is a wrong card, not a shorter one. The
+# history is card_history.jsonl, the record of what actually posted, never
+# the state file. If nothing pickable survives, select() raises
+# NothingFresh and the poster skips the slot: a missed slot is the lesser
+# fault, and the one this bot had never once chosen over a repeat.
+CARD_HISTORY = HERE / 'card_history.jsonl'
+
+
+class NothingFresh(Exception):
+    """Every fact left in the pool has already been posted at this value."""
+
+
+def posted_lines(history_path=CARD_HISTORY):
+    """The (label, value) of every line on every card ever posted, read from
+    the card log. An unreadable line is skipped, never fatal: the log is
+    append-only prose the poster writes best-effort."""
+    seen = set()
+    if not Path(history_path).exists():
+        return seen
+    for line in Path(history_path).read_text(encoding='utf-8').splitlines():
+        try:
+            rec = json.loads(line)
+        except ValueError:
+            continue
+        for l in rec.get('lines') or []:
+            if isinstance(l, dict) and 'label' in l and 'value' in l:
+                seen.add((l['label'], l['value']))
+    return seen
+
+
+def drop_spent(pool, spent):
+    """Remove every fact whose (label, value) is in `spent`, and every fact
+    sharing a pair with one. Returns (fresh_pool, withheld_count)."""
+    spent_pairs = {f['pair'] for f in pool
+                   if f.get('pair') and (f['label'], f['value']) in spent}
+    fresh = [f for f in pool
+             if (f['label'], f['value']) not in spent
+             and f.get('pair') not in spent_pairs]
+    return fresh, len(pool) - len(fresh)
+
+
+def pickable(pool):
+    """True if some vein still has enough facts for a card."""
+    counts = collections.Counter(f['vein'] for f in pool)
+    return any(n >= STARVE_MIN_FACTS for n in counts.values())
+
+
+def card_lines_key(lines):
+    """The identity of a card for the final refusal in london_index_post.py:
+    its lines, label and value, in order. The opener is left out on purpose
+    (a fresh opener over the same figures is still the same card), as is the
+    dateline (it is derived from the same picks)."""
+    return tuple((l['label'], l['value']) for l in lines)
+
+
+def posted_cards(history_path=CARD_HISTORY):
+    """Every card ever posted, as card_lines_key() tuples."""
+    keys = set()
+    if not Path(history_path).exists():
+        return keys
+    for line in Path(history_path).read_text(encoding='utf-8').splitlines():
+        try:
+            rec = json.loads(line)
+        except ValueError:
+            continue
+        lines = rec.get('lines') or []
+        if lines and all(isinstance(l, dict) and 'label' in l and 'value' in l
+                         for l in lines):
+            keys.add(card_lines_key(lines))
+    return keys
+
+
+# Any vein that led a card within this many hours is withheld, on top of
+# the two four-day groups below. Added 12 September 2026 with the spent
+# filter above: that filter cannot stop a LIVE vein (whose values change
+# every run) from leading three cards in one day once the static veins are
+# spent, and a "Santander Cycles available now" card at 8:00, 12:30 and
+# 17:30 is the same card to a reader whatever the numbers did. 20 hours,
+# not 24, so a vein that led the 8:00 p.m. slot is free again for 5:30 p.m.
+# the next day. Same abandonment rule as every cooldown here: if withholding
+# would leave nothing pickable, it is not applied.
+GENERAL_COOLDOWN_HOURS = 20
+
+
+def recently_led(state, hours=GENERAL_COOLDOWN_HOURS):
+    """The veins stamped in vein_last_at within the last `hours`."""
+    out = set()
+    now = datetime.now(timezone.utc)
+    for vein, stamp in (state.get('vein_last_at') or {}).items():
+        try:
+            age = now - datetime.fromisoformat(stamp)
+        except (ValueError, TypeError):
+            continue
+        if age < timedelta(hours=hours):
+            out.add(vein)
+    return out
+
+
 # --- Vein rotation: cooldowns + starve-floor --------------------------
 # Ported from Seoul Index's apply_cooldown()/promote_starved() (same file,
 # same names, same mechanism) and simplified for London Index's much
@@ -389,7 +502,7 @@ def apply_cooldown(pool, state, veins, days, label):
     if not any(n >= 2 for n in remaining.values()):
         return pool
     hours = int(newest_age.total_seconds() // 3600)
-    print(f'{label} on cooldown ({hours}h of {days * 24}h) - '
+    print(f'{label} on cooldown ({hours}h of {int(round(days * 24))}h) - '
           f'{len(pool) - len(cooled)} fact(s) withheld.')
     return cooled
 
@@ -460,11 +573,25 @@ def update_state(state, sel):
     return state
 
 
-def select(pool, state):
+def select(pool, state, history_path=CARD_HISTORY):
+    # Spent facts go first, so every later guard judges only what could
+    # actually be posted: a cooldown abandoned "because nothing else is
+    # pickable" must not be abandoned on the strength of facts that are
+    # about to be dropped anyway.
+    pool, withheld = drop_spent(pool, posted_lines(history_path))
+    if withheld:
+        print(f'{withheld} fact(s) already posted at this value - withheld.')
+    if not pickable(pool):
+        raise NothingFresh('every fact still in the pool has already been '
+                           'posted at this value; nothing fresh to post')
     pool = apply_cooldown(pool, state, BUSIEST_STATION_VEINS,
                           BUSIEST_STATION_COOLDOWN_DAYS, 'Busiest-station cards')
     pool = apply_cooldown(pool, state, DCMS_MUSEUMS_VEINS,
                           DCMS_MUSEUMS_COOLDOWN_DAYS, 'DCMS museums')
+    recent = recently_led(state)
+    if recent:
+        pool = apply_cooldown(pool, state, recent, GENERAL_COOLDOWN_HOURS / 24,
+                              'Veins that led within the day')
     pool, _promoted = promote_starved(pool, state)
 
     avoid = state.get('recent_ids', [])[-RECENT_IDS_KEEP:]

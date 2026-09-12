@@ -101,8 +101,27 @@ def main():
         sys.exit('No facts harvested; nothing to post.')
 
     state = json.loads(STATE.read_text()) if STATE.exists() else {}
-    sel = select_mod.select(pool, state)
+    try:
+        sel = select_mod.select(pool, state)
+    except select_mod.NothingFresh as e:
+        # A skipped slot, on purpose: every fact left has already been
+        # posted at this value, and a repeat is the fault this bot actually
+        # had (see select.py's spent-facts section). Exit 0, since this is
+        # the guard working, not the run failing; bot_health_check.py still
+        # sees a feed that has gone quiet if it happens for a day.
+        print(f'Slot skipped: {e}.')
+        return
     c = compose_mod.compose(sel, pool)
+
+    # The last line of defence, added 12 September 2026 alongside the spent
+    # filter: whatever the selector did, a card whose lines match one
+    # already posted does not go out. The filter should make this
+    # unreachable; this is what says so if it ever isn't (a --only run, a
+    # future selection path, a history file the filter could not read).
+    key = select_mod.card_lines_key(c['lines'])
+    if key in select_mod.posted_cards(CARD_LOG):
+        sys.exit('Refusing to post: this card, line for line, has already '
+                 f'been posted. Lines: {key}')
 
     print(f"{c['opener']['emoji']} {c['opener']['text']}")
     for l in c['lines']:

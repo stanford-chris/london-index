@@ -266,5 +266,153 @@ class SelectWiring(unittest.TestCase):
         self.assertNotIn('river_levels:0', captured['prompt'])
 
 
+class SpentFacts(unittest.TestCase):
+    """The 12 September 2026 guard: a fact already posted at this value is
+    withheld, a pair group goes with any spent member, and a pool with
+    nothing fresh raises rather than repeating. The two real cards that
+    prompted it are the fixtures."""
+
+    CAMDEN = [{'label': 'Most: Camden', 'value': '3,179'},
+              {'label': 'Fewest: Bromley', 'value': '449'}]
+
+    def _history(self, cards):
+        import json, tempfile
+        fh = tempfile.NamedTemporaryFile('w', suffix='.jsonl', delete=False)
+        for lines in cards:
+            fh.write(json.dumps({'at': 'x', 'primary_vein': 'police_boroughs',
+                                 'veins': ['police_boroughs'], 'opener': 'Reported crime',
+                                 'dateline': 'July 2026', 'lines': lines}) + '\n')
+        fh.close()
+        self.addCleanup(Path(fh.name).unlink)
+        return fh.name
+
+    def test_posted_lines_reads_every_line_of_every_card(self):
+        seen = S.posted_lines(self._history([self.CAMDEN]))
+        self.assertEqual(seen, {('Most: Camden', '3,179'), ('Fewest: Bromley', '449')})
+
+    def test_missing_history_is_empty_not_fatal(self):
+        self.assertEqual(S.posted_lines('/nonexistent/card_history.jsonl'), set())
+
+    def test_garbage_line_in_history_is_skipped(self):
+        path = self._history([self.CAMDEN])
+        with open(path, 'a') as fh:
+            fh.write('not json\n')
+        self.assertEqual(len(S.posted_lines(path)), 2)
+
+    def test_the_actual_incident_card_is_withheld(self):
+        pool = [{'id': 'police_boroughs:most-camden', 'vein': 'police_boroughs',
+                 'label': 'Most: Camden', 'value': '3,179', 'pair': 'police_gap'},
+                {'id': 'police_boroughs:fewest-bromley', 'vein': 'police_boroughs',
+                 'label': 'Fewest: Bromley', 'value': '449', 'pair': 'police_gap'},
+                {'id': 'tfl_bikes:a', 'vein': 'tfl_bikes', 'label': 'Available', 'value': '9,234', 'pair': None},
+                {'id': 'tfl_bikes:b', 'vein': 'tfl_bikes', 'label': 'Empty docks', 'value': '109 of 800', 'pair': None}]
+        fresh, withheld = S.drop_spent(pool, S.posted_lines(self._history([self.CAMDEN])))
+        self.assertEqual(withheld, 2)
+        self.assertEqual({f['vein'] for f in fresh}, {'tfl_bikes'})
+
+    def test_same_label_new_value_is_fresh(self):
+        # The month rolls over: Camden still leads, at a new figure.
+        pool = [{'id': 'a', 'vein': 'police_boroughs', 'label': 'Most: Camden',
+                 'value': '3,301', 'pair': 'police_gap'}]
+        fresh, withheld = S.drop_spent(pool, {('Most: Camden', '3,179')})
+        self.assertEqual(withheld, 0)
+        self.assertEqual(fresh, pool)
+
+    def test_one_spent_member_takes_the_whole_pair_group(self):
+        pool = [{'id': f'station_usage:{n}', 'vein': 'station_usage', 'label': n,
+                 'value': v, 'pair': 'usage_top'}
+                for n, v in (('Waterloo', '74,483,879'), ('King’s Cross', '73,571,468'),
+                             ('Tottenham Court Road', '60,813,501'), ('Victoria', '60,156,525'))]
+        pool.append({'id': 'station_usage:gap', 'vein': 'station_usage',
+                     'label': 'Quietest: Roding Valley', 'value': '204,505', 'pair': 'usage_gap'})
+        fresh, withheld = S.drop_spent(pool, {('Waterloo', '74,483,879')})
+        self.assertEqual(withheld, 4)
+        self.assertEqual([f['label'] for f in fresh], ['Quietest: Roding Valley'])
+
+    def test_unpaired_spent_fact_takes_only_itself(self):
+        pool = [{'id': 'laqn:a', 'vein': 'laqn', 'label': 'Boroughs with a monitor', 'value': '33', 'pair': None},
+                {'id': 'laqn:b', 'vein': 'laqn', 'label': 'Worst reading: Ozone', 'value': 'index 2 (Low)', 'pair': None}]
+        fresh, withheld = S.drop_spent(pool, {('Boroughs with a monitor', '33')})
+        self.assertEqual(withheld, 1)
+        self.assertEqual([f['label'] for f in fresh], ['Worst reading: Ozone'])
+
+    def test_select_raises_nothing_fresh_rather_than_repeating(self):
+        pool = [{'id': 'police_boroughs:most-camden', 'vein': 'police_boroughs',
+                 'label': 'Most: Camden', 'value': '3,179', 'pair': 'police_gap'},
+                {'id': 'police_boroughs:fewest-bromley', 'vein': 'police_boroughs',
+                 'label': 'Fewest: Bromley', 'value': '449', 'pair': 'police_gap'}]
+        with patch('subprocess.run') as run:
+            with self.assertRaises(S.NothingFresh):
+                S.select(pool, {}, history_path=self._history([self.CAMDEN]))
+            run.assert_not_called()
+
+    def test_select_drops_spent_before_the_prompt(self):
+        pool = [{'id': 'police_boroughs:most-camden', 'vein': 'police_boroughs',
+                 'label': 'Most: Camden', 'value': '3,179', 'pair': 'police_gap'},
+                {'id': 'police_boroughs:fewest-bromley', 'vein': 'police_boroughs',
+                 'label': 'Fewest: Bromley', 'value': '449', 'pair': 'police_gap'}] + mkfact('tfl_bikes', 3)
+        captured = {}
+
+        def fake_run(cmd, **kwargs):
+            captured['prompt'] = cmd[-1]
+            return SelectWiring._fake_claude(None, ['tfl_bikes:0', 'tfl_bikes:1'])
+
+        with patch('subprocess.run', side_effect=fake_run):
+            sel = S.select(pool, {}, history_path=self._history([self.CAMDEN]))
+        self.assertEqual(sel['vein'], 'tfl_bikes')
+        # The id, not the label: "Most: Camden" is quoted in SELECT_PROMPT's
+        # own rules text, so the label is in every prompt regardless.
+        self.assertNotIn('police_boroughs:most-camden', captured['prompt'])
+        self.assertIn('tfl_bikes:0', captured['prompt'])
+
+    def test_card_key_ignores_opener_and_matches_posted_card(self):
+        posted = S.posted_cards(self._history([self.CAMDEN]))
+        self.assertIn(S.card_lines_key(self.CAMDEN), posted)
+        self.assertNotIn(S.card_lines_key(self.CAMDEN[:1]), posted)
+
+
+class GeneralCooldown(unittest.TestCase):
+    def test_vein_that_led_within_the_day_is_withheld(self):
+        state = {'vein_last_at': {'tfl_bikes': iso(hours_ago=5),
+                                  'laqn': iso(days_ago=3)}}
+        self.assertEqual(S.recently_led(state), {'tfl_bikes'})
+
+    def test_boundary_is_twenty_hours(self):
+        state = {'vein_last_at': {'a': iso(hours_ago=19), 'b': iso(hours_ago=21)}}
+        self.assertEqual(S.recently_led(state), {'a'})
+
+    def test_malformed_stamp_is_not_recent(self):
+        self.assertEqual(S.recently_led({'vein_last_at': {'a': 'garbage'}}), set())
+
+    def test_select_withholds_the_vein_that_just_led(self):
+        pool = mkfact('tfl_bikes', 3) + mkfact('laqn', 3)
+        state = {'vein_last_at': {'tfl_bikes': iso(hours_ago=4),
+                                  'laqn': iso(hours_ago=30)}}
+        captured = {}
+
+        def fake_run(cmd, **kwargs):
+            captured['prompt'] = cmd[-1]
+            return SelectWiring._fake_claude(None, ['laqn:0', 'laqn:1'])
+
+        with patch('subprocess.run', side_effect=fake_run):
+            sel = S.select(pool, state, history_path='/nonexistent')
+        self.assertEqual(sel['vein'], 'laqn')
+        self.assertNotIn('tfl_bikes:0', captured['prompt'])
+
+    def test_abandoned_when_it_would_leave_nothing(self):
+        # Only one fresh vein and it led four hours ago: post it again with
+        # new numbers rather than skip, same rule as every other cooldown.
+        pool = mkfact('tfl_bikes', 3)
+        state = {'vein_last_at': {'tfl_bikes': iso(hours_ago=4)}}
+
+        def fake_run(cmd, **kwargs):
+            return SelectWiring._fake_claude(None, ['tfl_bikes:0', 'tfl_bikes:1'])
+
+        with patch('subprocess.run', side_effect=fake_run):
+            sel = S.select(pool, state, history_path='/nonexistent')
+        self.assertEqual(sel['vein'], 'tfl_bikes')
+
+
+
 if __name__ == '__main__':
     unittest.main()
