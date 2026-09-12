@@ -709,6 +709,27 @@ class MetDashboardAndLfb(unittest.TestCase):
             H.lfb_aggregate([('a', 'b')])
 
 
+class Events(unittest.TestCase):
+    def test_events_facts(self):
+        counts = {'week': 1184, 'day': 280, 'month': 5123,
+                  'segments': {'Arts & Theatre': 372, 'Music': 127, 'Miscellaneous': 625, 'Sports': 4}}
+        facts = H.events_facts(counts)
+        self.assertEqual([(f['label'], f['value']) for f in facts],
+                         [('All events', '1,184'), ('Starting in the next 24 hours', '280'),
+                          ('Theatre and arts', '372'), ('Music', '127'), ('Attractions and other', '625'),
+                          ('Sport', '4'), ('Listed for the next 30 days', '5,123')])
+        self.assertTrue(all(f['period'] is None and f['pair'] == 'events_all' and f['dateline_lead'] == H.TM_LEAD for f in facts))
+
+    def test_no_key_and_no_total_are_named_refusals(self):
+        with unittest.mock.patch.object(H, '_tm_key', return_value=None):
+            facts, err = H.harvest_events()
+        self.assertEqual(facts, []); self.assertIn('ticketmaster-api-key', err)
+        with unittest.mock.patch.object(H, '_tm_key', return_value='k'), \
+             unittest.mock.patch.object(H, '_tm_total', return_value=None):
+            facts, err = H.harvest_events()
+        self.assertEqual(facts, []); self.assertIn('seven-day total', err)
+
+
 class DatelineLead(unittest.TestCase):
     """compose() puts a fact's dateline_lead ahead of the date on the second
     line; a fact without one renders as before."""

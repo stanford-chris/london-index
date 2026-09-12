@@ -105,6 +105,10 @@ dcms_museums added 30 August):
                   unemployment London against the UK (rolling quarter) and
                   people freed from lifts by the fire brigade (monthly). See
                   the section above HARVESTERS.
+  events        - Ticketmaster's Discovery API: what is on sale in London for
+                  the next seven days, by segment, plus the next 24 hours
+                  and 30 days. Live. Key in Keychain (london-index /
+                  ticketmaster-api-key). Added 12 September 2026.
 
 Usage:
     python3 london_index_harvest.py            # pool as pretty JSON
@@ -3120,6 +3124,82 @@ def harvest_lfb_incidents():
     return lfb_facts(months[ym], ym, prev=months.get(_shift_month(ym, 12))), None
 
 
+
+# --- What is on sale in London: Ticketmaster's Discovery API (live) --------
+# Chosen over Skiddle on 29 August 2026 (see SESSION_SUMMARY.md); the key
+# arrived 12 September and is in the Keychain (london-index /
+# ticketmaster-api-key), the Consumer Key of the developer account's
+# auto-created app, quota 5,000 calls a day. Seven calls a run. Counts only
+# are published, never listing content, which keeps clear of the API's
+# content terms. ⚠️ A "listing" is one performance or timed entry: a West
+# End theatre lists eight a week, and Miscellaneous is mostly attractions
+# and family shows, so the labels say so. segmentName is the exact filter
+# (measured: the five segments plus 'Undefined' sum to the total);
+# classificationName matches genres too and overcounts.
+TM_URL = 'https://app.ticketmaster.com/discovery/v2/events.json'
+TM_PAGE = 'https://www.ticketmaster.co.uk/'
+TM_SOURCE = 'Ticketmaster (Discovery API)'
+TM_NOTE = 'Ticketmaster’s own listings; each performance or timed entry counts once'
+TM_LEAD = 'Ticketmaster listings, next seven days'
+TM_SEGMENTS = (('Arts & Theatre', 'Theatre and arts'), ('Music', 'Music'),
+               ('Miscellaneous', 'Attractions and other'), ('Sports', 'Sport'))
+
+
+def _tm_key():
+    r = subprocess.run(['security', 'find-generic-password', '-a', 'london-index',
+                        '-s', 'ticketmaster-api-key', '-w'], capture_output=True, text=True)
+    return r.stdout.strip() if r.returncode == 0 and r.stdout.strip() else None
+
+
+def _tm_total(key, **params):
+    """page.totalElements for a London query, or None."""
+    q = dict(apikey=key, city='London', countryCode='GB', size=1, **params)
+    d = get_json(TM_URL + '?' + urllib.parse.urlencode(q), timeout=30)
+    if not isinstance(d, dict) or 'page' not in d:
+        return None
+    return d['page'].get('totalElements')
+
+
+def events_facts(counts, url=TM_PAGE):
+    """`counts`: {'week': n, 'day': n, 'month': n, 'segments': {segment: n}}.
+    Pair "events_all", fixed opener; live, so the second line carries the
+    clock behind TM_LEAD."""
+    mk = lambda v, label: fact(f'{v:,}', label, TM_SOURCE, url, pair='events_all',
+                               context_note=TM_NOTE, dateline_lead=TM_LEAD)
+    facts = [mk(counts['week'], 'All events')]
+    if counts.get('day') is not None:
+        facts.append(mk(counts['day'], 'Starting in the next 24 hours'))
+    for seg, label in TM_SEGMENTS:
+        n = counts.get('segments', {}).get(seg)
+        if n is not None:
+            facts.append(mk(n, label))
+    if counts.get('month') is not None:
+        facts.append(mk(counts['month'], 'Listed for the next 30 days'))
+    return facts
+
+
+def harvest_events():
+    key = _tm_key()
+    if not key:
+        return [], 'no Ticketmaster key in Keychain (london-index / ticketmaster-api-key)'
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    fmt = '%Y-%m-%dT%H:%M:%SZ'
+    start = now.strftime(fmt)
+    week = _tm_total(key, startDateTime=start, endDateTime=(now + timedelta(days=7)).strftime(fmt))
+    if not week:
+        return [], 'Ticketmaster answered no seven-day total (bad key, quota, or an outage)'
+    counts = {'week': week,
+              'day': _tm_total(key, startDateTime=start, endDateTime=(now + timedelta(days=1)).strftime(fmt)),
+              'month': _tm_total(key, startDateTime=start, endDateTime=(now + timedelta(days=30)).strftime(fmt)),
+              'segments': {}}
+    for seg, _label in TM_SEGMENTS:
+        n = _tm_total(key, startDateTime=start, endDateTime=(now + timedelta(days=7)).strftime(fmt),
+                      segmentName=seg)
+        if n is not None:
+            counts['segments'][seg] = n
+    return events_facts(counts), None
+
+
 HARVESTERS = {
     'tfl_bikes': harvest_tfl_bikes,
     # tfl_crowding PAUSED 31 August 2026, Chris's call: no more Tube posts
@@ -3168,6 +3248,7 @@ HARVESTERS = {
     'unemployment': harvest_unemployment,
     'lift_releases': harvest_lift_releases,
     'lfb_incidents': harvest_lfb_incidents,
+    'events': harvest_events,
 }
 
 

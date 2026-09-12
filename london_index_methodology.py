@@ -133,7 +133,8 @@ SOURCE_PREFIX = 'Sources: '
 SOURCE_LINE = (SOURCE_PREFIX + 'tfl.gov.uk, crowding.data.tfl.gov.uk, '
                'environment.data.gov.uk, data.police.uk, '
                'data.london.gov.uk, londonair.org.uk, www.gov.uk, '
-               'landregistry.data.gov.uk, nationalrail.co.uk, geoportal.statistics.gov.uk')
+               'landregistry.data.gov.uk, nationalrail.co.uk, geoportal.statistics.gov.uk, '
+               'ticketmaster.co.uk')
 # landregistry.data.gov.uk (UK House Price Index) and nationalrail.co.uk
 # (Rail Delivery Group's Live Departure Board, whose licence requires the
 # credit) added 12 September 2026 with the house_prices and rail_departures
@@ -159,7 +160,8 @@ SOURCE_DOMAINS = [('tfl.gov.uk', 'https://tfl.gov.uk'),
                   # 2026 with the seven Datastore series (which credit
                   # data.london.gov.uk, already listed). Not a substring of any other
                   # listed domain: 'statistics.gov.uk' and 'gov.uk' are never listed bare.
-                  ('geoportal.statistics.gov.uk', 'https://geoportal.statistics.gov.uk')]
+                  ('geoportal.statistics.gov.uk', 'https://geoportal.statistics.gov.uk'),
+                  ('ticketmaster.co.uk', 'https://www.ticketmaster.co.uk')]
 
 
 def _alt(card):

@@ -932,3 +932,26 @@ false alarms, 5,685 special services, Westminster most (845), first engine
 on scene in 5 min 55 s on average, £9.6 million notional cost. Both caches
 were seeded from the files already downloaded and stamped with the served
 ETags. 26 veins. Tests: harvest 69.
+
+### Ticketmaster: the events vein (12 September 2026)
+The key arrived the same evening: the Consumer Key of the developer
+account's auto-created app, found under the username menu's "My Apps"
+(the "Get Your API Key" button leads to the profile page, which has no
+key; third-party guides supplied the route), 32 alphanumeric characters,
+in the Keychain (`london-index` / `ticketmaster-api-key`) and, from the
+Keychain, in 1Password ("Ticketmaster Discovery API key (London Index)").
+⚠️ The first copy attempt read an EMPTY clipboard and stored an empty key
+in both places before the API test failed with InvalidApiKey; both empty
+records were deleted and the harvester now refuses a clipboard under 16
+characters before storing anything. `events`: seven calls a run to the
+Discovery API for London (`city=London&countryCode=GB`): listings in the
+next seven days, the next 24 hours and 30 days, and the seven-day count by
+segment. ⚠️ `segmentName` is the exact filter (the five segments plus
+'Undefined' sum to the total, 1,184 on 12 September); `classificationName`
+matches genres and overcounts (its four came to 1,483). A listing is one
+performance or timed entry, and Miscellaneous is mostly attractions and
+family shows, so the labels say "Theatre and arts", "Attractions and
+other". Counts only are published, never listing content. Fixed opener
+"On sale in London", lead "Ticketmaster listings, next seven days".
+ticketmaster.co.uk joined the pinned thread's sources (11 domains, 232
+characters). 27 veins. Tests: harvest 71.

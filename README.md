@@ -66,6 +66,7 @@ The title names what is measured ("Reported crime", "House prices, by borough").
 | `unemployment` | London Datastore: ONS unemployment rate, London against the UK, rolling quarter | quarterly |
 | `lift_releases` | London Datastore: people freed from lifts by the fire brigade, by month and borough | monthly |
 | `lfb_incidents` | London Datastore: every London Fire Brigade incident, by month: fires, false alarms, special services, first engine's time to arrive, notional cost | monthly, cached from the 81 MB file |
+| `events` | Ticketmaster Discovery API: what is on sale in London for the next seven days, by segment, and the next 24 hours and 30 days | live |
 
 A daily weather card (`london_weather_post.py`) uses the Met Office Weather DataHub and posts separately.
 
@@ -86,7 +87,7 @@ Borough boundaries on the map are the Office for National Statistics' Local Auth
 
 ## Setup
 
-Credentials live in the macOS Keychain, never in this repository: the Bluesky app password, a long-lived `claude` token, a TfL subscription key, the Rail Data Marketplace consumer key and the Met Office DataHub key. Each harvester falls back or refuses plainly when its key is missing. Posting is scheduled with launchd, four times a day at 8:00 a.m., 12:30 p.m., 5:30 p.m. and 8:30 p.m. London time.
+Credentials live in the macOS Keychain, never in this repository: the Bluesky app password, a long-lived `claude` token, a TfL subscription key, the Rail Data Marketplace consumer key, the Ticketmaster Discovery API key and the Met Office DataHub key. Each harvester falls back or refuses plainly when its key is missing. Posting is scheduled with launchd, four times a day at 8:00 a.m., 12:30 p.m., 5:30 p.m. and 8:30 p.m. London time.
 
 ## Licence
 
