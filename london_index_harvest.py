@@ -994,7 +994,161 @@ def whole_borough_counts(ym, names=None, cache_path=CRIME_CACHE, fetch=borough_m
     return {n: month[n] for n in names if n in month}
 
 
-def borough_facts(counts, prev_counts, cats, ym, url):
+
+# --- The Met's own borough counts: the Monthly Crime Dashboard ------------
+# Chris's call, 12 September 2026, offered as "could replace our polygon
+# counts with official ones". The London Datastore carries the Met's own
+# dashboard data (dataset e5n6w): total notifiable offences by borough and
+# offence group, monthly, refreshed by the 6th of the following month, so a
+# month fresher than data.police.uk's street-level feed (August 2026 was
+# there on 12 September; data.police.uk had July). One 136 MB CSV, 877,000
+# rows, most of them ward-level; the 'Borough' rows for the 'Offences'
+# measure are what the cards use. Cached at MPS_CACHE (gitignored) and
+# re-downloaded only when the month the calendar expects is missing and the
+# last attempt is over a day old, so a late Met costs one download a day,
+# not four. The polygon counts (CRIME_CACHE) stay as the fallback when the
+# dashboard cannot be read at all. ⚠️ TNO counts exclude anti-social
+# behaviour, which data.police.uk includes; the two are not comparable, and
+# a card names its source.
+MPS_DASHBOARD_URL = 'https://data.london.gov.uk/download/e5n6w/hkc/M1045_MonthlyCrimeDashboard_TNOCrimeData.csv'
+MPS_DASHBOARD_PAGE = 'https://data.london.gov.uk/dataset/mps-monthly-crime-dahboard-data'
+MPS_CACHE = Path(__file__).parent / 'data' / 'mps_dashboard.json'
+MPS_SOURCE = 'Metropolitan Police crime dashboard (London Datastore)'
+MPS_NOTE = 'Total notifiable offences, the Metropolitan Police’s own monthly count'
+MPS_TYPE_GROUPS = ('VIOLENCE AGAINST THE PERSON', 'THEFT', 'VEHICLE OFFENCES', 'BURGLARY',
+                   'ROBBERY', 'DRUG OFFENCES')
+REFETCH_AFTER_HOURS = 24
+
+
+def _group_name(g):
+    """'VIOLENCE AGAINST THE PERSON' -> 'Violence against the person'."""
+    g = g.strip()
+    return g[:1].upper() + g[1:].lower() if g else g
+
+
+def mps_parse(text):
+    """The dashboard CSV -> {'refresh': 'YYYY-MM-DD', 'months': {ym: {borough:
+    {'total': n, 'groups': {group: n}}}}}, Borough rows and the Offences
+    measure only, the 'Other / NK' bucket left out. Raises ValueError on a
+    changed header."""
+    import csv
+    import io
+    rows = csv.reader(io.StringIO(text))
+    header = [c.strip() for c in next(rows)]
+    need = ['Month_Year', 'Area Type', 'Area Name', 'offence group', 'Measure', 'Count', 'Refresh Date']
+    if not all(n in header for n in need):
+        raise ValueError(f'dashboard header changed: {header}')
+    mi, ti, ni, gi, mei, ci, ri = (header.index(n) for n in need)
+    months = {}
+    refresh = ''
+    for r in rows:
+        try:
+            if r[ti] != 'Borough' or r[mei] != 'Offences':
+                continue
+            name = r[ni].strip()
+            # Only the 33 boroughs: the file also carries 'Other / NK' and, in
+            # some months, 'Aviation Policing' (Heathrow) as 'Borough' rows.
+            if name not in ALL_BOROUGHS:
+                continue
+            ym = r[mi][:7]
+            n = int(r[ci] or 0)
+        except (IndexError, ValueError):
+            continue
+        refresh = max(refresh, r[ri])
+        b = months.setdefault(ym, {}).setdefault(name, {'total': 0, 'groups': {}})
+        b['total'] += n
+        b['groups'][r[gi]] = b['groups'].get(r[gi], 0) + n
+    if not months:
+        raise ValueError('no borough offence rows parsed')
+    return {'refresh': refresh, 'months': months}
+
+
+def head_etag(url):
+    """The ETag the Datastore serves for a download, or None. Both big files
+    carry one (measured 12 September 2026), so a month that is late costs a
+    HEAD request a run, not a 136 MB download a day."""
+    r = subprocess.run(['curl', '-sSI', '-L', '--max-time', '30', url], capture_output=True, text=True)
+    if r.returncode != 0:
+        return None
+    for line in r.stdout.splitlines():
+        if line.lower().startswith('etag:'):
+            return line.split(':', 1)[1].strip()
+    return None
+
+
+def needs_refetch(cache, now=None, url=None, etag_of=None):
+    """True when the month the calendar expects (the previous one) is not
+    cached, the last attempt is over REFETCH_AFTER_HOURS old, and, when the
+    cache remembers the file's ETag and `url` is given, the file's ETag has
+    changed (a file that has not changed cannot hold the missing month)."""
+    now = now or datetime.now(timezone.utc)
+    expected = _shift_month(now.strftime('%Y-%m'), 1)
+    if expected in (cache.get('months') or {}):
+        return False
+    fetched = cache.get('fetched')
+    if fetched:
+        try:
+            if now - datetime.fromisoformat(fetched) < timedelta(hours=REFETCH_AFTER_HOURS):
+                return False
+        except ValueError:
+            pass
+    if url and cache.get('etag'):
+        current = (etag_of or head_etag)(url)
+        if current and current == cache['etag']:
+            return False
+    return True
+
+
+def mps_borough_months(cache_path=MPS_CACHE, download=None):
+    """ym -> {borough -> {'total', 'groups'}} from the cache, refreshed from
+    the Datastore when needs_refetch() says so. A failed download leaves the
+    cache as it was (with its attempt time stamped) and returns it."""
+    cache = _read_cache(cache_path)
+    if needs_refetch(cache, url=MPS_DASHBOARD_URL):
+        text = (download or _download_text)(MPS_DASHBOARD_URL, timeout=600)
+        cache['fetched'] = datetime.now(timezone.utc).isoformat()
+        if text:
+            try:
+                parsed = mps_parse(text)
+                cache['months'] = parsed['months']
+                cache['refresh'] = parsed['refresh']
+                cache['etag'] = head_etag(MPS_DASHBOARD_URL)
+                print(f'Met dashboard: fetched, {len(parsed["months"])} months, refresh {parsed["refresh"]}.',
+                      file=sys.stderr)
+            except ValueError as e:
+                print(f'Met dashboard: {e}', file=sys.stderr)
+        else:
+            print('Met dashboard: download failed; using the cache as it stands.', file=sys.stderr)
+        _write_cache(cache, cache_path)
+    return cache.get('months') or {}
+
+
+def borough_source():
+    """(ym, now, prev, cats, source, url, note, type_groups, name_fn) for the
+    borough cards: the Met dashboard when it has a month, else the polygon
+    counts from data.police.uk. `now` and `prev` map borough -> total, `cats`
+    borough -> {category: n}. None when neither source has a month."""
+    months = mps_borough_months()
+    if months:
+        ym = max(months)
+        now = {n: r['total'] for n, r in months[ym].items()}
+        cats = {n: r['groups'] for n, r in months[ym].items()}
+        prev_m = months.get(_shift_month(ym, 1)) or {}
+        prev = {n: r['total'] for n, r in prev_m.items()}
+        return ym, now, prev, cats, MPS_SOURCE, MPS_DASHBOARD_PAGE, MPS_NOTE, MPS_TYPE_GROUPS, _group_name
+    ym, _ = _latest_police_month(51.5074, -0.1278)
+    if ym is None:
+        return None
+    w = whole_borough_counts(ym)
+    now = {n: r['total'] for n, r in w.items()}
+    cats = {n: r['categories'] for n, r in w.items()}
+    prev = {n: r['total'] for n, r in whole_borough_counts(_shift_month(ym, 1), names=list(w)).items()}
+    url = f'{POLY_URL}?poly=<borough outline>&date={ym}'
+    return ym, now, prev, cats, 'data.police.uk', url, None, BOROUGH_TYPE_CATEGORIES, _category_name
+
+
+def borough_facts(counts, prev_counts, cats, ym, url, source='data.police.uk', note=None,
+                  type_categories=None, name_fn=None):
     """The borough card's facts from this month's per-borough counts, the
     previous month's, and each borough's per-category counts, for all 33
     boroughs as whole boroughs (since 12 September 2026; eight one-mile
@@ -1011,15 +1165,17 @@ def borough_facts(counts, prev_counts, cats, ym, url):
       - "police_types_top": for each of BOROUGH_TYPE_CATEGORIES, the
         borough with the most of it, ranked by count, picked whole
     Every fact carries BOROUGH_NOTE."""
-    note = BOROUGH_NOTE
+    note = note if note is not None else BOROUGH_NOTE
     lead = BOROUGH_LEAD
+    type_categories = type_categories or BOROUGH_TYPE_CATEGORIES
+    name_fn = name_fn or _category_name
     ranked = sorted(counts.items(), key=lambda kv: -kv[1])
     busiest, quietest = ranked[0], ranked[-1]
     facts = [
         fact(f'{busiest[1]:,}', f'Most: {busiest[0]}',
-             'data.police.uk', url, period=ym, pair='police_gap', context_note=note, dateline_lead=lead),
+             source, url, period=ym, pair='police_gap', context_note=note, dateline_lead=lead),
         fact(f'{quietest[1]:,}', f'Fewest: {quietest[0]}',
-             'data.police.uk', url, period=ym, pair='police_gap', context_note=note, dateline_lead=lead),
+             source, url, period=ym, pair='police_gap', context_note=note, dateline_lead=lead),
     ]
     # Dead-heat: two of the curated boroughs whose crime counts happen to
     # land on nearly the same number, out of the whole set rather than just
@@ -1029,10 +1185,10 @@ def borough_facts(counts, prev_counts, cats, ym, url):
         name_a, _, name_b, _ = heat
         for name in (name_a, name_b):
             facts.append(fact(f'{counts[name]:,}', name,
-                               'data.police.uk', url, period=ym,
+                               source, url, period=ym,
                                pair='police_heat', context_note=note, dateline_lead=lead))
     for name, n in ranked[:BOROUGH_TOP_N]:
-        facts.append(fact(f'{n:,}', name, 'data.police.uk', url, period=ym,
+        facts.append(fact(f'{n:,}', name, source, url, period=ym,
                           pair='police_top', context_note=note, dateline_lead=lead))
     if prev_counts:
         prev_month = _readable_month(_shift_month(ym, 1))
@@ -1045,15 +1201,15 @@ def borough_facts(counts, prev_counts, cats, ym, url):
             fall_name, fall = changes[-1]
             facts.append(fact(_pct_change(counts[rise_name], prev_counts[rise_name]),
                               f'Biggest rise since {prev_month}: {rise_name}',
-                              'data.police.uk', url, period=ym,
+                              source, url, period=ym,
                               pair='police_change', context_note=note, dateline_lead=lead))
             fall_label = 'Biggest fall' if fall < 0 else 'Smallest rise'
             facts.append(fact(_pct_change(counts[fall_name], prev_counts[fall_name]),
                               f'{fall_label} since {prev_month}: {fall_name}',
-                              'data.police.uk', url, period=ym,
+                              source, url, period=ym,
                               pair='police_change', context_note=note, dateline_lead=lead))
     leaders = []
-    for cat in BOROUGH_TYPE_CATEGORIES:
+    for cat in type_categories:
         per = {name: c.get(cat, 0) for name, c in cats.items()}
         if not per or max(per.values()) == 0:
             continue
@@ -1061,32 +1217,28 @@ def borough_facts(counts, prev_counts, cats, ym, url):
         leaders.append((cat, name, per[name]))
     leaders.sort(key=lambda t: -t[2])
     for cat, name, n in leaders[:BOROUGH_TYPES_N]:
-        facts.append(fact(f'{n:,}', f'{_category_name(cat)}: {name}',
-                          'data.police.uk', url, period=ym,
+        facts.append(fact(f'{n:,}', f'{name_fn(cat)}: {name}',
+                          source, url, period=ym,
                           pair='police_types_top', context_note=note, dateline_lead=lead))
     return facts
 
 
 def harvest_police_boroughs():
-    ym, _ = _latest_police_month(51.5074, -0.1278)
-    if ym is None:
+    src = borough_source()
+    if src is None:
         return [], 'no populated month found in the last 4 tried'
-    now = whole_borough_counts(ym)
-    if len(now) < 2:
+    ym, counts, prev_counts, cats, source, url, note, type_groups, name_fn = src
+    if len(counts) < 2:
         return [], f'fewer than 2 boroughs answered for {ym}'
-    counts = {n: r['total'] for n, r in now.items()}
-    cats = {n: r['categories'] for n, r in now.items()}
-    prev = whole_borough_counts(_shift_month(ym, 1), names=list(now))
-    prev_counts = {n: r['total'] for n, r in prev.items()}
     # A change pair over a partial previous month would compare the boroughs
     # against however many happened to answer; all or none.
     if set(prev_counts) != set(counts):
         prev_counts = {}
-    url = f'{POLY_URL}?poly=<borough outline>&date={ym}'
-    facts = borough_facts(counts, prev_counts, cats, ym, url)
+    facts = borough_facts(counts, prev_counts, cats, ym, url, source=source, note=note,
+                          type_categories=type_groups, name_fn=name_fn)
     missing = sorted(set(ALL_BOROUGHS) - set(counts))
     if missing:
-        facts[0]['note'] = f'{len(missing)} of {len(ALL_BOROUGHS)} boroughs did not answer for {ym}: {missing}'
+        facts[0]['note'] = f'{len(missing)} of {len(ALL_BOROUGHS)} boroughs missing for {ym}: {missing}'
     return facts, None
 
 
@@ -1180,7 +1332,8 @@ def spotlight_pick(candidates, last_featured):
     return sorted(candidates, key=lambda n: (n in last_featured, last_featured.get(n, ''), n))[0]
 
 
-def spotlight_facts(name, total, categories, prev_total, all_counts, ym, url):
+def spotlight_facts(name, total, categories, prev_total, all_counts, ym, url,
+                    source='data.police.uk', note=None, name_fn=None):
     """One borough's card, from its whole-borough total and per-category
     counts for the month, the previous month's total (or None) and every
     answering borough's total for the rank; under SPOTLIGHT_MIN_RANKED
@@ -1188,12 +1341,13 @@ def spotlight_facts(name, total, categories, prev_total, all_counts, ym, url):
     coordinates: the fill is the area counted, so no circle."""
     opener = {'emoji': '🚓', 'text': SPOTLIGHT_OPENER_PREFIX + name}
     pin = {'name': name, 'lat': None, 'lng': None}
-    mk = lambda v, label: fact(v, label, 'data.police.uk', url, period=ym, pair='spot_all',
-                               context_note=SPOTLIGHT_NOTE, dateline_lead=SPOTLIGHT_LEAD,
-                               fixed_opener=opener, map_pin=pin)
+    name_fn = name_fn or _category_name
+    mk = lambda v, label: fact(v, label, source, url, period=ym, pair='spot_all',
+                               context_note=note if note is not None else SPOTLIGHT_NOTE,
+                               dateline_lead=SPOTLIGHT_LEAD, fixed_opener=opener, map_pin=pin)
     top = max(categories.items(), key=lambda kv: kv[1])
     facts = [mk(f'{total:,}', 'Reported crimes'),
-             mk(f'{top[1]:,}', f'Most common: {_category_name(top[0])}')]
+             mk(f'{top[1]:,}', f'Most common: {name_fn(top[0])}')]
     if prev_total:
         change = _pct_change(total, prev_total)
         if change is not None:
@@ -1208,21 +1362,18 @@ def spotlight_facts(name, total, categories, prev_total, all_counts, ym, url):
 
 
 def harvest_police_spotlight():
-    ym, _ = _latest_police_month(51.5074, -0.1278)
-    if ym is None:
+    src = borough_source()
+    if src is None:
         return [], 'no populated month found in the last 4 tried'
-    now = whole_borough_counts(ym)
-    if not now:
+    ym, counts, prev_counts, cats, source, url, note, _groups, name_fn = src
+    if not counts:
         return [], f'no borough answered for {ym}'
-    name = spotlight_pick(list(now), spotlight_last_featured())
-    prev = whole_borough_counts(_shift_month(ym, 1), names=[name]).get(name)
-    url = f'{POLY_URL}?poly=<borough outline>&date={ym}'
-    facts = spotlight_facts(name, now[name]['total'], now[name]['categories'],
-                            prev['total'] if prev else None,
-                            {n: r['total'] for n, r in now.items()}, ym, url)
-    missing = sorted(set(ALL_BOROUGHS) - set(now))
+    name = spotlight_pick(list(counts), spotlight_last_featured())
+    facts = spotlight_facts(name, counts[name], cats[name], prev_counts.get(name), counts, ym, url,
+                            source=source, note=note, name_fn=name_fn)
+    missing = sorted(set(ALL_BOROUGHS) - set(counts))
     if missing:
-        facts[0]['note'] = f'{len(missing)} of {len(ALL_BOROUGHS)} boroughs did not answer for {ym}: {missing}'
+        facts[0]['note'] = f'{len(missing)} of {len(ALL_BOROUGHS)} boroughs missing for {ym}: {missing}'
     return facts, None
 
 
@@ -2844,6 +2995,131 @@ def harvest_lift_releases():
     return lifts_facts(by_month[ym], ym, prev_rows=by_month.get(_shift_month(ym, 12))), None
 
 
+
+# --- London Fire Brigade incidents, monthly, from the full incident file ----
+# The 81 MB "LFB Incident data from 2024 onwards" XLSX on the Datastore
+# (dataset em8xy, OGL), every incident with its type, borough, first-engine
+# attendance time and notional cost. Same monthly cache and refetch rule as
+# the Met dashboard: one download when a new month is expected, at most one
+# attempt a day while it is late. Measured on July 2026: 14,307 incidents,
+# 3,067 fires, 5,549 false alarms, 5,685 special services, first engine on
+# scene in 5 min 55 s on average, £9.6 million notional cost.
+LFB_URL = 'https://data.london.gov.uk/download/em8xy/58m/LFB%20Incident%20data%20from%202024%20onwards.xlsx'
+LFB_PAGE = 'https://data.london.gov.uk/dataset/london-fire-brigade-incident-records'
+LFB_CACHE = Path(__file__).parent / 'data' / 'lfb_incidents.json'
+LFB_SOURCE = 'London Datastore (LFB incident records)'
+LFB_NOTE = 'Every incident the London Fire Brigade attended; special services are rescues, floods, crashes and the like'
+
+
+def lfb_aggregate(rows):
+    """Sheet rows (header first) -> {ym: {'total', 'fires', 'primary_fires',
+    'false_alarms', 'special', 'boroughs': {}, 'attendance_s': mean or None,
+    'cost': sum}}. Raises ValueError on a changed header."""
+    header = [str(h).strip() for h in rows[0]]
+    need = ['DateOfCall', 'IncidentGroup', 'StopCodeDescription', 'IncGeo_BoroughName',
+            'FirstPumpArriving_AttendanceTime', 'Notional Cost (£)']
+    if not all(n in header for n in need):
+        raise ValueError(f'LFB header changed: {header[:12]}')
+    di, gi, si, bi, ai, ci = (header.index(n) for n in need)
+    months = {}
+    att = {}
+    for r in rows[1:]:
+        when = r[di]
+        if isinstance(when, str):
+            try:
+                when = datetime.fromisoformat(when[:19])
+            except ValueError:
+                continue
+        if not isinstance(when, datetime):
+            continue
+        ym = when.strftime('%Y-%m')
+        m = months.setdefault(ym, {'total': 0, 'fires': 0, 'primary_fires': 0, 'false_alarms': 0,
+                                   'special': 0, 'boroughs': {}, 'attendance_s': None, 'cost': 0})
+        m['total'] += 1
+        g = str(r[gi] or '')
+        if g == 'Fire':
+            m['fires'] += 1
+            if str(r[si] or '') == 'Primary Fire':
+                m['primary_fires'] += 1
+        elif g == 'False Alarm':
+            m['false_alarms'] += 1
+        elif g == 'Special Service':
+            m['special'] += 1
+        b = str(r[bi] or '').strip()
+        if b:
+            m['boroughs'][b] = m['boroughs'].get(b, 0) + 1
+        a = r[ai]
+        if isinstance(a, (int, float)):
+            att.setdefault(ym, []).append(float(a))
+        c = r[ci]
+        if isinstance(c, (int, float)):
+            m['cost'] += float(c)
+    for ym, vals in att.items():
+        months[ym]['attendance_s'] = sum(vals) / len(vals)
+    if not months:
+        raise ValueError('no LFB rows parsed')
+    return months
+
+
+def lfb_months(cache_path=LFB_CACHE, load_rows=None):
+    """ym -> aggregate from the cache, refreshed when needs_refetch() says so.
+    A failed download leaves the cache as it was."""
+    cache = _read_cache(cache_path)
+    if needs_refetch(cache, url=LFB_URL):
+        rows = (load_rows or _download_xlsx_rows)(LFB_URL, timeout=600)
+        cache['fetched'] = datetime.now(timezone.utc).isoformat()
+        if rows:
+            try:
+                cache['months'] = lfb_aggregate(rows)
+                cache['etag'] = head_etag(LFB_URL)
+                print(f'LFB incidents: fetched, {len(cache["months"])} months.', file=sys.stderr)
+            except ValueError as e:
+                print(f'LFB incidents: {e}', file=sys.stderr)
+        else:
+            print('LFB incidents: download failed; using the cache as it stands.', file=sys.stderr)
+        _write_cache(cache, cache_path)
+    return cache.get('months') or {}
+
+
+def _minutes_seconds(s):
+    s = int(round(s))
+    return f'{s // 60} min {s % 60} s'
+
+
+def lfb_facts(m, ym, prev=None, url=LFB_PAGE):
+    """One month's fire brigade card, pair "lfb_all": incidents, fires, false
+    alarms, special services, the borough with the most, the average first
+    engine's time to arrive, the notional cost, and the change on a year
+    earlier when the file has it."""
+    mk = lambda v, label: fact(v, label, LFB_SOURCE, url, period=ym, pair='lfb_all', context_note=LFB_NOTE)
+    facts = [mk(f'{m["total"]:,}', 'Incidents attended'), mk(f'{m["fires"]:,}', 'Fires'),
+             mk(f'{m["false_alarms"]:,}', 'False alarms'), mk(f'{m["special"]:,}', 'Special services')]
+    if m.get('boroughs'):
+        name, n = max(m['boroughs'].items(), key=lambda kv: kv[1])
+        facts.append(mk(f'{n:,}', f'Most: {name.title()}'))
+    if m.get('attendance_s'):
+        facts.append(mk(_minutes_seconds(m['attendance_s']), 'First engine on scene, average'))
+    if m.get('cost'):
+        facts.append(mk(f'£{m["cost"] / 1e6:.1f} million', 'Notional cost'))
+    if prev and prev.get('total'):
+        change = _pct_change(m['total'], prev['total'])
+        if change is not None:
+            facts.append(mk(change, 'Change on a year earlier'))
+    return facts
+
+
+def harvest_lfb_incidents():
+    months = lfb_months()
+    this_month = datetime.now(timezone.utc).strftime('%Y-%m')
+    complete = sorted(m for m in months if m < this_month)
+    if not complete:
+        return [], 'no complete month in the LFB incident cache'
+    ym = complete[-1]
+    if months[ym]['total'] < 1000:
+        return [], f'only {months[ym]["total"]} LFB incidents in {ym}; refusing a partial month'
+    return lfb_facts(months[ym], ym, prev=months.get(_shift_month(ym, 12))), None
+
+
 HARVESTERS = {
     'tfl_bikes': harvest_tfl_bikes,
     # tfl_crowding PAUSED 31 August 2026, Chris's call: no more Tube posts
@@ -2891,6 +3167,7 @@ HARVESTERS = {
     'arrests': harvest_arrests,
     'unemployment': harvest_unemployment,
     'lift_releases': harvest_lift_releases,
+    'lfb_incidents': harvest_lfb_incidents,
 }
 
 

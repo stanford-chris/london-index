@@ -103,11 +103,16 @@ MUSEUMS = ("Museum visitor totals are the Department for Culture, Media and "
 # no card, pinned or daily, said so. The polygon is the ONS borough outline,
 # the same one the map reply draws; data.police.uk publishes street-level
 # reports about two months behind, with its own categories.
-CRIME = ("Crime figures are the reports data.police.uk publishes for the streets "
-         "inside each borough's boundary, counted whole, in the police's own "
-         "categories, about two months after the month they cover. Central "
-         "London means within a mile of Trafalgar Square. A borough card's map "
-         "fills the borough counted.")
+# Reworded the same day the borough cards moved to the Met's own dashboard
+# figures (total notifiable offences, 32 boroughs; the City has its own
+# force), a month fresher than data.police.uk. Central London stays on
+# data.police.uk's street-level reports.
+CRIME = ("Borough crime figures are the Metropolitan Police's own monthly counts "
+         "of total notifiable offences, by borough and offence group, published "
+         "on the London Datastore in the first week of the following month; the "
+         "City of London, with its own force, is not among them. Central London "
+         "means within a mile of Trafalgar Square, from data.police.uk's "
+         "street-level reports. A borough card's map fills the borough counted.")
 
 CARDS = [
     {'heading': 'About this account', 'emoji': '\U0001f1ec\U0001f1e7', 'body': [INTRO]},

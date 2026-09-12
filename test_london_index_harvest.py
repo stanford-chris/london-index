@@ -635,6 +635,80 @@ class ZoneMap(unittest.TestCase):
             card.render_zone_map([], '/tmp/x.png')
 
 
+class MetDashboardAndLfb(unittest.TestCase):
+    CSV = ('Month_Year,Area Type,Borough_SNT,Area Name,Area Code,offence group,Offence Subgroup,Measure,Financial Year,Count,Refresh Date\n'
+           '2026-08-01,Borough,Camden,Camden,E09000007,THEFT,OTHER THEFT,Offences,fy26-27,1200,2026-09-02\n'
+           '2026-08-01,Borough,Camden,Camden,E09000007,VIOLENCE AGAINST THE PERSON,VIOLENCE WITH INJURY,Offences,fy26-27,900,2026-09-02\n'
+           '2026-08-01,Borough,Camden,Camden,E09000007,THEFT,OTHER THEFT,Positive Outcomes,fy26-27,50,2026-09-02\n'
+           '2026-08-01,Safer Neighbourhood Teams,Camden Bloomsbury,Bloomsbury,E05,THEFT,OTHER THEFT,Offences,fy26-27,300,2026-09-02\n'
+           '2026-08-01,Borough,Other / NK,Other / NK,-1,THEFT,OTHER THEFT,Offences,fy26-27,99,2026-09-02\n'
+           '2026-08-01,Borough,Aviation Policing,Aviation Policing,-1,THEFT,OTHER THEFT,Offences,fy26-27,7,2026-09-02\n'
+           '2026-07-01,Borough,Camden,Camden,E09000007,THEFT,OTHER THEFT,Offences,fy26-27,1000,2026-09-02\n')
+
+    def test_mps_parse_keeps_borough_offences_only(self):
+        p = H.mps_parse(self.CSV)
+        self.assertEqual(p['refresh'], '2026-09-02')
+        self.assertEqual(set(p['months']), {'2026-08', '2026-07'})
+        self.assertEqual(p['months']['2026-08'], {'Camden': {'total': 2100, 'groups': {'THEFT': 1200, 'VIOLENCE AGAINST THE PERSON': 900}}})
+        with self.assertRaises(ValueError):
+            H.mps_parse('Month,Count\n2026-08-01,5\n')
+
+    def test_group_name(self):
+        self.assertEqual(H._group_name('VIOLENCE AGAINST THE PERSON'), 'Violence against the person')
+
+    def test_needs_refetch_rules(self):
+        from datetime import datetime, timezone, timedelta
+        now = datetime(2026, 9, 12, tzinfo=timezone.utc)
+        self.assertFalse(H.needs_refetch({'months': {'2026-08': {}}}, now))            # expected month present
+        self.assertTrue(H.needs_refetch({'months': {'2026-07': {}}}, now))             # missing, never fetched
+        fresh = (now - timedelta(hours=2)).isoformat(); stale = (now - timedelta(hours=30)).isoformat()
+        self.assertFalse(H.needs_refetch({'months': {'2026-07': {}}, 'fetched': fresh}, now))
+        self.assertTrue(H.needs_refetch({'months': {'2026-07': {}}, 'fetched': stale}, now))
+        same = {'months': {'2026-07': {}}, 'fetched': stale, 'etag': '"a"'}
+        self.assertFalse(H.needs_refetch(same, now, url='u', etag_of=lambda u: '"a"'))
+        self.assertTrue(H.needs_refetch(same, now, url='u', etag_of=lambda u: '"b"'))
+        self.assertTrue(H.needs_refetch(same, now, url='u', etag_of=lambda u: None))
+
+    def test_borough_source_prefers_the_dashboard_and_falls_back(self):
+        months = {'2026-08': {'Camden': {'total': 2100, 'groups': {'THEFT': 1200}}},
+                  '2026-07': {'Camden': {'total': 1000, 'groups': {'THEFT': 700}}}}
+        with unittest.mock.patch.object(H, 'mps_borough_months', return_value=months):
+            ym, now, prev, cats, source, url, note, groups, name_fn = H.borough_source()
+        self.assertEqual((ym, now, prev), ('2026-08', {'Camden': 2100}, {'Camden': 1000}))
+        self.assertEqual(source, H.MPS_SOURCE)
+        self.assertEqual(name_fn('THEFT'), 'Theft')
+        with unittest.mock.patch.object(H, 'mps_borough_months', return_value={}), \
+             unittest.mock.patch.object(H, '_latest_police_month', return_value=('2026-07', [])), \
+             unittest.mock.patch.object(H, 'whole_borough_counts', side_effect=lambda ym, names=None, **k:
+                                        {'Camden': {'total': 5, 'categories': {'burglary': 5}}}):
+            src = H.borough_source()
+        self.assertEqual(src[4], 'data.police.uk')
+        self.assertEqual(src[1], {'Camden': 5})
+
+    def test_lfb_aggregate_and_facts(self):
+        from datetime import datetime
+        header = ('IncidentNumber', 'DateOfCall', 'IncidentGroup', 'StopCodeDescription', 'IncGeo_BoroughName',
+                  'FirstPumpArriving_AttendanceTime', 'Notional Cost (£)')
+        rows = [header,
+                ('1', datetime(2026, 7, 1), 'Fire', 'Primary Fire', 'WESTMINSTER', 300, 1000),
+                ('2', datetime(2026, 7, 2), 'Fire', 'Secondary Fire', 'CAMDEN', 400, 500),
+                ('3', datetime(2026, 7, 3), 'False Alarm', 'AFA', 'WESTMINSTER', None, 500),
+                ('4', datetime(2026, 7, 4), 'Special Service', 'Special Service', 'BRENT', 380, 2000000),
+                ('5', datetime(2025, 7, 4), 'Fire', 'Primary Fire', 'BRENT', 100, 100)]
+        m = H.lfb_aggregate(rows)
+        self.assertEqual(m['2026-07']['total'], 4); self.assertEqual(m['2026-07']['fires'], 2)
+        self.assertEqual(m['2026-07']['primary_fires'], 1); self.assertEqual(m['2026-07']['false_alarms'], 1)
+        self.assertEqual(m['2026-07']['special'], 1); self.assertEqual(m['2026-07']['boroughs']['WESTMINSTER'], 2)
+        self.assertAlmostEqual(m['2026-07']['attendance_s'], 360.0)
+        facts = H.lfb_facts(m['2026-07'], '2026-07', prev=m['2025-07'])
+        self.assertEqual([(f['label'], f['value']) for f in facts],
+                         [('Incidents attended', '4'), ('Fires', '2'), ('False alarms', '1'), ('Special services', '1'),
+                          ('Most: Westminster', '2'), ('First engine on scene, average', '6 min 0 s'),
+                          ('Notional cost', '£2.0 million'), ('Change on a year earlier', '+300%')])
+        with self.assertRaises(ValueError):
+            H.lfb_aggregate([('a', 'b')])
+
+
 class DatelineLead(unittest.TestCase):
     """compose() puts a fact's dateline_lead ahead of the date on the second
     line; a fact without one renders as before."""

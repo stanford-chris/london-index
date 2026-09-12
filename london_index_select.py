@@ -328,6 +328,7 @@ FIXED_OPENERS = {
     ('arrests', 'arrests_all'): {'emoji': '🚓', 'text': 'Arrests by the Metropolitan Police'},
     ('unemployment', 'jobless_all'): {'emoji': '', 'text': 'Unemployment'},
     ('lift_releases', 'lifts_all'): {'emoji': '🚒', 'text': 'People stuck in lifts'},
+    ('lfb_incidents', 'lfb_all'): {'emoji': '🚒', 'text': 'The London Fire Brigade’s month'},
 }
 
 

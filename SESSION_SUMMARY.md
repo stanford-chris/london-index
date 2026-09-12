@@ -908,3 +908,27 @@ the map between card and source link, crediting TfL via the Datastore AND
 the ONS/OS outlines. Tests pin the file's ring count, its bbox, that its
 vertices fall inside the central boroughs (river-bank misses allowed), and
 the refusal on an empty zone. Tests: harvest 64.
+
+### The Met's own borough counts, and the fire brigade's month (12 September 2026)
+"Let's do these." Both 136 MB and 81 MB files were downloaded and read
+before deciding. **The MPS Monthly Crime Dashboard** (Datastore e5n6w,
+refreshed by the 6th) has 'Borough' rows for the 32 boroughs the Met polices
+(the City has its own force), by offence group, with the Offences and
+Positive Outcomes measures; August 2026 was there on 12 September, a month
+ahead of data.police.uk. Both borough cards now read it through
+`borough_source()`: `mps_borough_months()` parses the CSV to
+`data/mps_dashboard.json` (gitignored, 634 KB) and re-downloads only when
+the month the calendar expects is missing, the last attempt is over a day
+old AND the file's ETag has changed (`head_etag()`; both files carry one).
+The polygon counts stay as the fallback when the dashboard cannot be read.
+⚠️ TNO counts exclude anti-social behaviour and the two sources are not
+comparable; a card names its source. First live figures: Westminster 5,807,
+Southwark 3,784, Lambeth 3,565, Tower Hamlets 3,526; Barking and Dagenham
+1,679, 25th highest of 32, −10 percent on July. The pinned thread's crime
+card was reworded and reposted. **The LFB incident file** (em8xy, 358,000
+rows from 2024) became `lfb_incidents`, cached the same way at
+`data/lfb_incidents.json`: July 2026, 14,307 incidents, 3,067 fires, 5,549
+false alarms, 5,685 special services, Westminster most (845), first engine
+on scene in 5 min 55 s on average, £9.6 million notional cost. Both caches
+were seeded from the files already downloaded and stamped with the served
+ETags. 26 veins. Tests: harvest 69.

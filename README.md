@@ -34,7 +34,7 @@ The title names what is measured ("Reported crime", "House prices, by borough").
 
 **Spotlight cards** are about one place, walking through a set in turn, least recently featured first. The spotlight borough gives one borough's reported crime, most common category, change on the month and rank among the 33, and threads a map: every borough in outline, the featured one filled, which is the area counted. The station spotlight gives one main station's own departure board, and the river gauge spotlight one gauge's level against its own typical range.
 
-**Borough crime is counted whole.** data.police.uk publishes street-level reports and takes a polygon; each borough's polygon is its Office for National Statistics boundary, the same outline the map draws. The 33 counts are fetched once a month and cached, since the data changes monthly. Until 12 September 2026 the borough figures were a one-mile sample around each town hall, which understated some boroughs by more than half and ranked the wrong ones.
+**Borough crime is the Met's own count.** The borough cards read the Metropolitan Police's Monthly Crime Dashboard data from the London Datastore: total notifiable offences by borough and offence group for the 32 boroughs the Met polices (the City of London has its own force), refreshed in the first week of the following month. The 136 MB file is downloaded only when a new month is due and its ETag has changed, and the borough totals are cached. If the dashboard cannot be read, the cards fall back to data.police.uk's street-level reports counted inside each borough's Office for National Statistics boundary, the outline the map draws. Until 12 September 2026 the borough figures were a one-mile sample around each town hall, which understated some boroughs by more than half and ranked the wrong ones.
 
 ## Data sources
 
@@ -46,8 +46,8 @@ The title names what is measured ("Reported crime", "House prices, by borough").
 | `flood` | Environment Agency flood warnings and alerts for London | live |
 | `river_levels` | Environment Agency gauges: six London rivers against their own typical range | live |
 | `police` | data.police.uk: reported crime within a mile of Trafalgar Square | monthly, about two months behind |
-| `police_boroughs` | data.police.uk: all 33 boroughs counted whole, ranked, the movers on the month, where each crime type was highest | monthly |
-| `police_spotlight` | data.police.uk: one of the 33 boroughs per card, counted whole, with a map | monthly |
+| `police_boroughs` | Metropolitan Police crime dashboard via the London Datastore: the 32 Met boroughs ranked, the movers on the month, where each offence group was highest | monthly, first week of the next month |
+| `police_spotlight` | the same dashboard: one borough per card, with a map | monthly |
 | `stop_search` | data.police.uk: Metropolitan Police stop and search | monthly |
 | `cycle_hires` | London Datastore: daily Santander Cycles hires | periodic |
 | `laqn` | London Air Quality Network: current readings by borough | live |
@@ -65,6 +65,7 @@ The title names what is measured ("Reported crime", "House prices, by borough").
 | `arrests` | London Datastore: Met arrests, most common named offence, domestic-abuse flagged | monthly |
 | `unemployment` | London Datastore: ONS unemployment rate, London against the UK, rolling quarter | quarterly |
 | `lift_releases` | London Datastore: people freed from lifts by the fire brigade, by month and borough | monthly |
+| `lfb_incidents` | London Datastore: every London Fire Brigade incident, by month: fires, false alarms, special services, first engine's time to arrive, notional cost | monthly, cached from the 81 MB file |
 
 A daily weather card (`london_weather_post.py`) uses the Met Office Weather DataHub and posts separately.
 
