@@ -573,7 +573,7 @@ class DatastoreSeries(unittest.TestCase):
         rows.append(('Apr-Jun 2026', 338918.1, 6.51, None, 1772269.6, 4.89))
         facts = H.unemployment_facts(rows)
         self.assertEqual([(f['label'], f['value']) for f in facts],
-                         [('Unemployment rate, London', '6.5%'), ('Unemployment rate, UK', '4.9%'),
+                         [('London rate', '6.5%'), ('UK rate', '4.9%'),
                           ('Londoners unemployed', '339,000'), ('London rate, on a year earlier', '+0.5 points')])
         self.assertEqual(facts[0]['dateline_text'], 'April to June 2026')
         self.assertEqual(facts[0]['period'], '2026-06')
