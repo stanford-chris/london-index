@@ -60,7 +60,7 @@ The title names what is measured ("Reported crime", "House prices, by borough").
 | `river_gauge` | Environment Agency: one of the six gauges per card against its own typical range | live |
 | `reservoirs` | London Datastore: Thames Water reservoir levels, percent of usable capacity, against a year earlier and the average for the date since 1989 | daily |
 | `tfl_journeys` | London Datastore: TfL journeys by mode per four-week period, with the year-on-year change | every four weeks |
-| `congestion_charge` | London Datastore: vehicles seen in the Congestion Charge zone in charging hours | monthly |
+| `congestion_charge` | London Datastore: vehicles seen in the Congestion Charge zone in charging hours; threads a map of the zone | monthly |
 | `police_strength` | London Datastore: Metropolitan Police officers, staff and PCSOs, full-time equivalent | monthly |
 | `arrests` | London Datastore: Met arrests, most common named offence, domestic-abuse flagged | monthly |
 | `unemployment` | London Datastore: ONS unemployment rate, London against the UK, rolling quarter | quarterly |
@@ -68,7 +68,7 @@ The title names what is measured ("Reported crime", "House prices, by borough").
 
 A daily weather card (`london_weather_post.py`) uses the Met Office Weather DataHub and posts separately.
 
-Borough boundaries on the map are the Office for National Statistics' Local Authority Districts (December 2024), Open Government Licence v3.0, and contain OS data, Crown copyright and database right 2024; the map reply says so. Every publisher is credited with a link in each thread and in the account's pinned thread.
+Borough boundaries on the map are the Office for National Statistics' Local Authority Districts (December 2024), Open Government Licence v3.0, and contain OS data, Crown copyright and database right 2024; the map reply says so. The Congestion Charge zone boundary is TfL's, from the London Datastore's central ULEZ dataset (the same area), Open Government Licence, reprojected once from British National Grid and stored under `data/`. Every publisher is credited with a link in each thread and in the account's pinned thread.
 
 ## Files
 

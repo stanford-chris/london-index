@@ -447,7 +447,8 @@ def tfl_get_json(url, timeout=25):
 
 
 def fact(value, label, source, url, period=None, pair=None, context_note=None,
-         dateline_lead=None, fixed_opener=None, map_pin=None, dateline_text=None):
+         dateline_lead=None, fixed_opener=None, map_pin=None, dateline_text=None,
+         map_zone=None):
     """`pair` tags a fact as part of a pre-detected juxtaposition — a group
     of facts sharing one pair id are offered to the selector as a single
     unit worth building a card around, the same mechanism Seoul Index's
@@ -490,11 +491,14 @@ def fact(value, label, source, url, period=None, pair=None, context_note=None,
     that is neither a calendar month nor a day: TfL's four-week reporting
     periods ("Four weeks to 25 July 2026") and the ONS rolling quarter
     ("April to June 2026"). compose() uses it verbatim, with any
-    dateline_lead in front, when every pick carries the same one."""
+    dateline_lead in front, when every pick carries the same one.
+
+    `map_zone` names a stored boundary (only 'congestion_charge_zone' so
+    far) for a threaded map reply drawn by london_index_card.render_zone_map."""
     return {'value': value, 'label': label, 'source': source, 'url': url,
             'period': period, 'pair': pair, 'context_note': context_note,
             'dateline_lead': dateline_lead, 'fixed_opener': fixed_opener,
-            'map_pin': map_pin, 'dateline_text': dateline_text}
+            'map_pin': map_pin, 'dateline_text': dateline_text, 'map_zone': map_zone}
 
 
 def pct_of_baseline(fraction):
@@ -2594,7 +2598,7 @@ def congestion_facts(rows, url=CCZ_PAGE):
     ym = max(months)
     confirmed, days = months[ym]
     mk = lambda v, label: fact(v, label, f'{DATASTORE} (TfL Congestion Charge)', url, period=ym,
-                               pair='ccz_all', context_note=CCZ_NOTE)
+                               pair='ccz_all', context_note=CCZ_NOTE, map_zone='congestion_charge_zone')
     facts = [mk(f'{confirmed:,.0f}', 'Vehicles seen in charging hours')]
     if days:
         facts.append(mk(f'{confirmed / days:,.0f}', 'Per charging day'))

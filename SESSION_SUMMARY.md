@@ -888,3 +888,23 @@ size of everything else combined: the MPS Monthly Crime Dashboard (136 MB,
 the Met's own borough counts) and the full LFB incident file (81 MB).
 Skipped: rough sleeping (CHAIN), quarterly PDF and ODS, and a subject that
 wants more care than four lines. 26 veins. Tests: harvest 60, select 38.
+
+### The Congestion Charge zone map (12 September 2026)
+"Can we thread a map showing the congestion charge zone?" The Datastore has
+no dataset called that, but its "Ultra Low Emissions Zone 2019" (v8onw, OGL
+v2) is the boundary: the description says the central ULEZ "operates in the
+existing central London Congestion Charge Zone" and its shapefile is named
+`ULEZCentral_CongestionChargingZone`. The GeoJSON is served in British
+National Grid (EPSG:27700); with no pyproj here it was reprojected ONCE
+through Esri's public geometry service and committed at
+`data/congestion_charge_zone.geojson` (1,112 vertices, one ring; bbox
+−0.167 to −0.072, 51.486 to 51.532, which is central London). OpenStreetMap
+also carries the zone (relation 3045928, type=toll) but would have needed
+ODbL attribution; TfL's own boundary under the OGL is the better source.
+`render_zone_map()` frames on the zone at 2.4 times its extent over the
+borough outlines, the Thames showing as the gap between them. `fact()`
+gained `map_zone`; the congestion card asks for it and the poster threads
+the map between card and source link, crediting TfL via the Datastore AND
+the ONS/OS outlines. Tests pin the file's ring count, its bbox, that its
+vertices fall inside the central boroughs (river-bank misses allowed), and
+the refusal on an empty zone. Tests: harvest 64.

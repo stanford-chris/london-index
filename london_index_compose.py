@@ -211,6 +211,7 @@ def compose(sel, pool):
         # A borough to highlight on a threaded map reply, when the facts
         # ask for one (see fact()'s map_pin). Added 12 September 2026.
         'map_pin': next((f['map_pin'] for f in picks if f.get('map_pin')), None),
+        'map_zone': next((f['map_zone'] for f in picks if f.get('map_zone')), None),
         'primary_vein': picks[0]['vein'],
         'veins': sorted({f['vein'] for f in picks}),
     }

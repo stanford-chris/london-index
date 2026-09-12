@@ -320,6 +320,79 @@ def render_borough_map(highlight, town_hall, out_path, title='', caption='', bor
     return _shoot(doc, out_path, width=width)
 
 
+ZONE_GEOJSON = Path(__file__).parent / 'data' / 'congestion_charge_zone.geojson'
+
+
+def load_zone(path=ZONE_GEOJSON):
+    """The Congestion Charge zone as a list of rings of (lon, lat). TfL's
+    central ULEZ 2019 boundary from the London Datastore (dataset v8onw,
+    OGL v2), whose own description says the zone "operates in the existing
+    central London Congestion Charge Zone" and whose shapefile is named
+    ULEZCentral_CongestionChargingZone; served in British National Grid and
+    reprojected once to WGS84 on 12 September 2026 (see the file's own
+    `source` field), so no post depends on a live fetch or a projection."""
+    import json
+    d = json.loads(Path(path).read_text(encoding='utf-8'))
+    rings = []
+    for f in d['features']:
+        g = f['geometry']
+        polys = g['coordinates'] if g['type'] == 'MultiPolygon' else [g['coordinates']]
+        for poly in polys:
+            rings.append([(float(x), float(y)) for x, y in poly[0]])
+    return rings
+
+
+def render_zone_map(zone, out_path, title='', caption='', boroughs=None, zoom=2.4):
+    """A zone (list of rings) filled over the borough outlines, framed on the
+    zone itself at `zoom` times its extent so the surrounding boroughs and
+    the river give it a place. The threaded reply for the Congestion Charge
+    card, Chris's call, 12 September 2026. Raises CardRenderError on an
+    empty zone."""
+    if not zone or not any(zone):
+        raise CardRenderError('no zone rings to draw')
+    boroughs = boroughs or load_boroughs()
+    width = MAP_SIZE
+    top, bottom = 56, 44
+    pts = [p for r in zone for p in r]
+    zlo0, zlo1 = min(p[0] for p in pts), max(p[0] for p in pts)
+    zla0, zla1 = min(p[1] for p in pts), max(p[1] for p in pts)
+    k = math.cos(math.radians((zla0 + zla1) / 2))
+    # Frame: the zone's bounding box scaled by `zoom` about its centre, in
+    # metres-equivalent (longitude scaled by cos(lat)) so the frame is square
+    # on the ground, then the height follows the frame's aspect.
+    cx, cy = (zlo0 + zlo1) / 2, (zla0 + zla1) / 2
+    half_w = max((zlo1 - zlo0) * k, (zla1 - zla0)) * zoom / 2
+    lo0, lo1 = cx - half_w / k, cx + half_w / k
+    la0, la1 = cy - half_w, cy + half_w
+    scale = width / ((lo1 - lo0) * k)
+    size = int(round((la1 - la0) * scale + top + bottom))
+    ox, oy = 0, bottom
+
+    def xy(lon, lat):
+        return (ox + (lon - lo0) * k * scale, size - oy - (lat - la0) * scale)
+
+    def path(rings):
+        return ''.join('M' + 'L'.join(f'{x:.1f} {y:.1f}' for x, y in (xy(*p) for p in ring)) + 'Z'
+                       for ring in rings)
+
+    body = [f'<path d="{path(rings)}" fill="{INK}" fill-opacity="0.06" stroke="{MUTED}" '
+            f'stroke-width="1.2" fill-rule="evenodd"/>' for rings in boroughs.values()]
+    body.append(f'<path d="{path(zone)}" fill="{RED}" fill-opacity="0.28" stroke="{RED}" '
+                f'stroke-width="2.5" fill-rule="evenodd"/>')
+    title_html = (f'<text x="30" y="34" font-family="Menlo,monospace" font-size="20" '
+                  f'font-weight="bold" fill="#000">{_esc(title)}</text>' if title else '')
+    caption_html = (f'<text x="30" y="{size - 16}" font-family="Menlo,monospace" '
+                    f'font-size="12" fill="{MUTED}">{_esc(caption)}</text>' if caption else '')
+    svg = (f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{size}" '
+           f'viewBox="0 0 {width} {size}">'
+           f'<rect width="{width}" height="{size}" fill="{CREAM}"/>'
+           f'<clipPath id="frame"><rect x="0" y="{top}" width="{width}" height="{size - top - bottom}"/></clipPath>'
+           f'<g clip-path="url(#frame)">{"".join(body)}</g>{title_html}{caption_html}</svg>')
+    doc = (f'<!doctype html><html><head><meta charset="utf-8"></head>'
+           f'<body style="margin:0;background:#{SENTINEL}">{svg}</body></html>')
+    return _shoot(doc, out_path, width=width)
+
+
 def render_card(opener, lines, out_path, footnote='', dateline=''):
     """Render one index card. Returns (path, (w, h))."""
     if not lines:

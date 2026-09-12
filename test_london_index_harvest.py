@@ -595,6 +595,46 @@ class DatastoreSeries(unittest.TestCase):
         self.assertEqual(c['dateline'], 'Four weeks, 28 June to 25 July 2026')
 
 
+class ZoneMap(unittest.TestCase):
+    def test_zone_file_is_one_ring_in_central_london(self):
+        import london_index_card as card
+        rings = card.load_zone()
+        self.assertEqual(len(rings), 1)
+        self.assertGreater(len(rings[0]), 1000)
+        lons = [p[0] for p in rings[0]]; lats = [p[1] for p in rings[0]]
+        self.assertTrue(-0.17 < min(lons) and max(lons) < -0.07)
+        self.assertTrue(51.48 < min(lats) and max(lats) < 51.54)
+
+    def test_zone_lies_inside_the_central_boroughs(self):
+        # Every vertex of the zone falls inside one of the boroughs it is
+        # known to span; a reprojection error would put vertices in none.
+        import london_index_card as card
+        b = card.load_boroughs()
+        central = ['Westminster', 'City of London', 'Camden', 'Islington', 'Southwark', 'Lambeth',
+                   'Tower Hamlets', 'Hackney', 'Kensington and Chelsea']
+
+        def inside(pt, ring):
+            x, y = pt; hit = False
+            for i in range(len(ring)):
+                x1, y1 = ring[i - 1]; x2, y2 = ring[i]
+                if (y1 > y) != (y2 > y) and x < (x2 - x1) * (y - y1) / (y2 - y1) + x1:
+                    hit = not hit
+            return hit
+        zone = card.load_zone()[0]
+        misses = [p for p in zone[::10] if not any(inside(p, r) for n in central for r in b[n])]
+        # The river is no borough, so a vertex on the Thames bank may miss; allow a few.
+        self.assertLess(len(misses), len(zone[::10]) * 0.15, misses[:5])
+
+    def test_congestion_facts_ask_for_the_zone_map(self):
+        rows = [['Month', 'a', 'b', 'c', 'Notes'], ['Jul-26', '2783502', '2359567', '31', '']]
+        self.assertTrue(all(f['map_zone'] == 'congestion_charge_zone' for f in H.congestion_facts(rows)))
+
+    def test_empty_zone_refuses_to_draw(self):
+        import london_index_card as card
+        with self.assertRaises(card.CardRenderError):
+            card.render_zone_map([], '/tmp/x.png')
+
+
 class DatelineLead(unittest.TestCase):
     """compose() puts a fact's dateline_lead ahead of the date on the second
     line; a fact without one renders as before."""

@@ -226,6 +226,34 @@ def main():
                 print(f'Borough map failed ({type(e).__name__}: {e}); thread continues without it.',
                       file=sys.stderr)
 
+        # A stored zone boundary (the Congestion Charge zone), same shape of
+        # reply as the borough map: Chris's call, 12 September 2026. The
+        # boundary is TfL's, via the London Datastore under the OGL, and the
+        # outlines beneath it are the ONS's, so the reply credits both.
+        if c.get('map_zone') == 'congestion_charge_zone':
+            try:
+                map_path = HERE / 'map.png'
+                _, msize = card.render_zone_map(
+                    card.load_zone(), map_path, title='The Congestion Charge zone',
+                    caption='Boundary: TfL, via the London Datastore')
+                map_alt = ('Map of central London with the Congestion Charge zone filled in red '
+                           'over the borough outlines, the Thames running through it.')
+                mtb = client_utils.TextBuilder()
+                mtb.text('Zone boundary: TfL via the ').link('London Datastore', 'https://data.london.gov.uk/dataset/ultra-low-emissions-zone')
+                mtb.text(', Open Government Licence. Borough outlines: ').link(
+                    'Office for National Statistics', 'https://geoportal.statistics.gov.uk/')
+                mtb.text(', OGL v3.0, contains OS data © Crown copyright and database right 2024.')
+                pm = bsky.send_image(text=mtb, image=map_path.read_bytes(), image_alt=map_alt,
+                                     langs=['en'],
+                                     reply_to=models.AppBskyFeedPost.ReplyRef(parent=root_ref, root=root_ref),
+                                     image_aspect_ratio=models.AppBskyEmbedDefs.AspectRatio(
+                                         width=msize[0], height=msize[1]))
+                parent_ref = models.create_strong_ref(pm)
+                print('Posted the zone map as a reply.')
+            except Exception as e:  # noqa: BLE001 - the card is live; never let the map take the thread down
+                print(f'Zone map failed ({type(e).__name__}: {e}); thread continues without it.',
+                      file=sys.stderr)
+
         # Just the link(s) - no "Source: " label, no period credit. Chris's
         # call, 31 August 2026: the explanation of what a card's numbers
         # mean now lives on the card itself as its footnote (see
