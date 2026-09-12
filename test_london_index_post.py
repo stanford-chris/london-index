@@ -49,5 +49,38 @@ class DryRun(unittest.TestCase):
             self.assertFalse(state.exists())
 
 
+class CardAlt(unittest.TestCase):
+    """The alt must say everything the picture says. The dateline was
+    missing from it until 12 September 2026: the crime card read "July
+    2026" on the image and nothing in the alt."""
+
+    def _card(self, **over):
+        c = {'opener': {'emoji': '🚓', 'text': 'Reported crime'},
+             'dateline': 'July 2026',
+             'lines': [{'label': 'Within a mile of central London', 'value': '4,728'},
+                       {'label': "Most common: Other theft", 'value': '1,097'}],
+             'footnote': ''}
+        c.update(over)
+        return c
+
+    def test_the_dateline_is_in_the_alt(self):
+        alt = P.card_alt(self._card())
+        self.assertEqual(alt.split('\n')[:2], ['Reported crime', 'July 2026'])
+        self.assertIn('Within a mile of central London: 4,728', alt)
+
+    def test_no_dateline_means_no_blank_line(self):
+        alt = P.card_alt(self._card(dateline=''))
+        self.assertEqual(alt.split('\n')[1], 'Within a mile of central London: 4,728')
+
+    def test_footnote_is_bracketed_and_apostrophes_curled(self):
+        alt = P.card_alt(self._card(footnote="Sir John Soane's Museum counted"))
+        self.assertTrue(alt.endswith('(Sir John Soane’s Museum counted)'))
+        self.assertNotIn("'", alt)
+
+    def test_main_uses_the_helper(self):
+        src = Path(P.__file__).read_text()
+        self.assertIn('        alt = card_alt(c)\n', src)
+
+
 if __name__ == '__main__':
     unittest.main()

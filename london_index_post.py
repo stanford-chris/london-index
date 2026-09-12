@@ -80,6 +80,23 @@ def log_card(c, post_uri, handle, fallback):
         print(f'(card log failed: {e})')
 
 
+def card_alt(c):
+    """The card's alt text: opener, dateline, every line as "label: value",
+    footnote in brackets, all curled to match the image. Lifted out of
+    main() on 12 September 2026 so a test can hold it: the dateline had
+    been left out of the alt until that morning, so a screen-reader user
+    got a two-month-old crime figure with no month while the picture said
+    "July 2026", and nothing would have noticed it going missing again."""
+    alt = f"{card.curly(c['opener']['text'])}\n"
+    if c['dateline']:
+        alt += f"{card.curly(c['dateline'])}\n"
+    alt += '\n'.join(
+        f"{card.curly(l['label'])}: {card.curly(l['value'])}" for l in c['lines'])
+    if c['footnote']:
+        alt += f"\n({card.curly(c['footnote'])})"
+    return alt
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split('\n')[1])
     ap.add_argument('--dry-run', action='store_true')
@@ -178,13 +195,7 @@ def main():
         # out would drop "within a mile of each town hall" for every
         # screen-reader user. bot_variety_check.py's masthead sweep reads
         # only "label: value" rows, and this line carries no ": ".
-        alt = f"{card.curly(c['opener']['text'])}\n"
-        if c['dateline']:
-            alt += f"{card.curly(c['dateline'])}\n"
-        alt += '\n'.join(
-            f"{card.curly(l['label'])}: {card.curly(l['value'])}" for l in c['lines'])
-        if c['footnote']:
-            alt += f"\n({card.curly(c['footnote'])})"
+        alt = card_alt(c)
         ar = models.AppBskyEmbedDefs.AspectRatio(width=size[0], height=size[1])
         p1 = bsky.send_image(text='', image=image_bytes, image_alt=alt,
                              langs=['en'], image_aspect_ratio=ar)
