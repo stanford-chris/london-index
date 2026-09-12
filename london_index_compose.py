@@ -189,6 +189,13 @@ def compose(sel, pool):
     # but no date (a mixed-period card) shows the lead alone. Facts with no
     # lead render exactly as before.
     dateline = _dateline(picks)
+    # A spelled-out period the facts agree on ("Four weeks to 25 July 2026")
+    # replaces the derived one; a disagreement means a mixed card, which
+    # keeps the derived (mixed, so empty) dateline. Added 12 September 2026
+    # for TfL's four-week periods and the ONS rolling quarter.
+    texts = {f.get('dateline_text') for f in picks}
+    if len(texts) == 1 and next(iter(texts)):
+        dateline = next(iter(texts))
     lead = next((f['dateline_lead'] for f in picks if f.get('dateline_lead')), None)
     if lead:
         dateline = f'{lead}, {dateline}' if dateline else lead

@@ -136,6 +136,9 @@ _VEIN_RULE_SINGLE = """- SINGLE VEIN ONLY, for now. Pick 2 to 4 facts from ONE v
     them make a card together; there is no ranking or contrast to keep
     whole. Prefer the ones that read as one idea (a total and what happened
     to it, say) over four unrelated counts.
+- Vein "tfl_journeys" facts without a pair (the all-modes total and its
+  change on a year earlier) take an opener saying "Journeys on TfL" or
+  similar; the card's second line already states the four-week period.
 - Vein "house_prices" facts without a pair (London's average, its change on
   a year earlier, its change on the month) take an opener saying "House
   prices" or "London house prices" — nothing about "the market", and no
@@ -317,6 +320,14 @@ FIXED_OPENERS = {
     ('rail_departures', 'rail_all'): {'emoji': '🚆', 'text': 'Trains from London’s stations'},
     ('rail_departures', 'rail_top'): {'emoji': '🚆', 'text': 'Busiest London train stations'},
     ('rail_departures', 'rail_ops_top'): {'emoji': '🚆', 'text': 'Trains running late, by operator'},
+    # The seven London Datastore series, 12 September 2026.
+    ('reservoirs', 'reservoir_all'): {'emoji': '💧', 'text': 'London’s reservoirs'},
+    ('tfl_journeys', 'journeys_top'): {'emoji': '🚌', 'text': 'Journeys on TfL, by mode'},
+    ('congestion_charge', 'ccz_all'): {'emoji': '🚗', 'text': 'The Congestion Charge zone'},
+    ('police_strength', 'strength_all'): {'emoji': '🚓', 'text': 'Metropolitan Police staffing'},
+    ('arrests', 'arrests_all'): {'emoji': '🚓', 'text': 'Arrests by the Metropolitan Police'},
+    ('unemployment', 'jobless_all'): {'emoji': '', 'text': 'Unemployment'},
+    ('lift_releases', 'lifts_all'): {'emoji': '🚒', 'text': 'People stuck in lifts, freed by the fire brigade'},
 }
 
 

@@ -865,3 +865,26 @@ cards: how the borough counts are made now (whole boroughs, the police's
 own categories, about two months behind, central London within a mile of
 Trafalgar Square, the map fills the borough counted). Reposted with
 `--replace`; six posts live, nine source facets, old thread deleted.
+
+### Seven London Datastore series (12 September 2026)
+"Is there not something more we could use? Seems like a good source of
+material." A survey of the export API (1,296 datasets, 145 updated since
+March) found seven regular numeric series with small machine-readable
+files, all built the same evening, each a pure builder on the file's real
+header plus a harvester that refuses on a changed header or an empty
+series: `reservoirs` (daily, 1989 on: Lower Thames 59 percent on 31 August
+against an 80 percent average for the date), `tfl_journeys` (four-weekly by
+mode: 274.7 million, bus 134.8m, Underground 97.3m), `congestion_charge`
+(monthly vehicles in charging hours, 2.36m in July, −9 percent on the year),
+`police_strength` (monthly FTE: 31,011 officers, −4 percent), `arrests`
+(monthly from the custody dashboard: 12,731 in August; ⚠️ "Other Offence"
+is the largest bucket and names nothing, so the most common NAMED offence
+is the fact), `unemployment` (ONS rolling quarter, London 6.5 percent
+against the UK's 4.9) and `lift_releases` (monthly: 816 in July, 26 a day,
+Westminster most). `fact()` gained `dateline_text` for a period that is
+neither a month nor a day (TfL's four weeks, the rolling quarter); compose
+uses it verbatim when every pick agrees. Held for now, each a download the
+size of everything else combined: the MPS Monthly Crime Dashboard (136 MB,
+the Met's own borough counts) and the full LFB incident file (81 MB).
+Skipped: rough sleeping (CHAIN), quarterly PDF and ODS, and a subject that
+wants more care than four lines. 26 veins. Tests: harvest 60, select 38.

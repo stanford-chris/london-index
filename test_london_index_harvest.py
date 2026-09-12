@@ -498,6 +498,103 @@ class StationAndGaugeSpotlights(unittest.TestCase):
         self.assertEqual(facts[0]['fixed_opener']['text'], 'The ' + list(H.RIVER_STATIONS)[0])
 
 
+class DatastoreSeries(unittest.TestCase):
+    """The seven Datastore builders, each on rows shaped like the real file's
+    header (read on 12 September 2026), plus the refusals on a changed
+    header, which must raise rather than build a card of zeros."""
+
+    def test_reservoirs(self):
+        rows = [['date', 'month', 'year', ' lower_lee_group ', ' lower_thames_group ']]
+        for y in range(1989, 2027):
+            rows.append([f'31-Aug-{str(y)[2:]}', 'Aug', str(y), '80', '70' if y < 2026 else '59'])
+        rows.append(['30-Aug-26', 'Aug', '2026', '69', '60'])
+        facts = H.reservoir_facts(rows)
+        self.assertEqual([(f['label'], f['value']) for f in facts],
+                         [('Lower Thames group', '59%'), ('Lower Lee group', '80%'),
+                          ('Thames group, on a year earlier', '−11 points'),
+                          ('Thames group, average for the date since 1989', '70%')])
+        self.assertTrue(all(f['period'] == '2026-08-31' and f['pair'] == 'reservoir_all' for f in facts))
+        with self.assertRaises(ValueError):
+            H.reservoir_facts([['Date', 'Level']])
+
+    def test_journeys(self):
+        header = ['Period and Financial year', 'Reporting Period', 'Days in period', 'Period beginning',
+                  'Period ending', 'Bus journeys (m)', 'Underground journeys (m)', 'DLR Journeys (m)',
+                  'Tram Journeys (m)', 'Overground Journeys (m)', 'London Cable Car Journeys (m)', 'TfL Rail Journeys (m)']
+        rows = [header]
+        for i in range(14):
+            rows.append(['', str(i), '28', '01-Jan-25', f'{(i % 28) + 1:02d}-Jan-25', '100', '80', '5', '1', '10', '0.1', '15'])
+        rows.append(['', '4', '28', '28-Jun-26', '25-Jul-26', '134.8', '97.3', '7.1', '1.7', '14.0', '0.1', '19.7'])
+        facts = H.journey_facts(rows)
+        self.assertEqual(facts[0]['label'], 'Journeys on TfL, all modes')
+        self.assertEqual(facts[0]['value'], '274.7 million')
+        self.assertEqual(facts[0]['dateline_text'], 'Four weeks, 28 June to 25 July 2026')
+        self.assertEqual(facts[1]['label'], 'Change on the same period a year earlier')
+        self.assertEqual([(f['label'], f['value']) for f in facts if f['pair'] == 'journeys_top'],
+                         [('Bus', '134.8 million'), ('Underground', '97.3 million'),
+                          ('Elizabeth line', '19.7 million'), ('Overground', '14.0 million')])
+
+    def test_congestion(self):
+        rows = [['Month', 'CC Camera Captures during Charging Hours', 'CC Confirmed Vehicles observed during Charging Hours', 'Number of Charging Day in Month', 'Notes'],
+                ['Jul-25', '2900000', '2500000', '31', ''], ['Jul-26', '2783502', '2359567', '31', '']]
+        facts = H.congestion_facts(rows)
+        self.assertEqual([(f['label'], f['value']) for f in facts],
+                         [('Vehicles seen in charging hours', '2,359,567'), ('Per charging day', '76,115'),
+                          ('Charging days', '31'), ('Change on a year earlier', '−6%')])
+        self.assertTrue(all(f['period'] == '2026-07' for f in facts))
+
+    def test_strength(self):
+        rows = [['Date', 'Police Officer Strength', 'Police Staff Strength', 'PCSO Strength'],
+                ['Jul-25', '32000', '11000', '1400'], ['Jul-26', '31011', '11522', '1366']]
+        facts = H.strength_facts(rows)
+        self.assertEqual([(f['label'], f['value']) for f in facts],
+                         [('Police officers', '31,011'), ('Civilian staff', '11,522'),
+                          ('Community support officers', '1,366'), ('Officers, change on a year earlier', '−3%')])
+
+    def test_arrests(self):
+        header = ('Arrest Year', 'Arrest Month', 'Arrest Month Name', 'Gender', 'Age Group', 'Ethnicity (4+1)',
+                  'First Arrest Offence', 'Domestic Abuse Flag', 'Arrest Count')
+        rows = [header,
+                (2025, 8, 'August', 'Male', 'Adult', 'White', 'Assault', 'No', 1000),
+                (2026, 8, 'August', 'Male', 'Adult', 'White', 'Assault', 'No', 600),
+                (2026, 8, 'August', 'Female', 'Adult', 'White', 'Assault', 'Yes', 300),
+                (2026, 8, 'August', 'Male', 'Adult', 'Black', 'Drugs', 'No', 200),
+                (2026, 8, 'August', 'Male', 'Adult', 'White', 'Other Offence', 'No', 5000)]
+        facts = H.arrests_facts(rows)
+        self.assertEqual([(f['label'], f['value']) for f in facts],
+                         [('Arrests', '6,100'), ('Most common offence: Assault', '900'),
+                          ('Flagged as domestic abuse', '300'), ('Change on a year earlier', '+510%')])
+        self.assertTrue(all(f['period'] == '2026-08' for f in facts))
+
+    def test_unemployment(self):
+        rows = [(None, 'London', None, None, 'UK'), ('All Persons', 'Unemployed', 'rate', None, 'Unemployed', 'rate')]
+        for i in range(14):
+            rows.append((f'Mar-May {2025 + i // 12}', 300000.0, 6.0, None, 1700000.0, 4.5))
+        rows.append(('Apr-Jun 2026', 338918.1, 6.51, None, 1772269.6, 4.89))
+        facts = H.unemployment_facts(rows)
+        self.assertEqual([(f['label'], f['value']) for f in facts],
+                         [('Unemployment rate, London', '6.5%'), ('Unemployment rate, UK', '4.9%'),
+                          ('Londoners unemployed', '339,000'), ('London rate, on a year earlier', '+0.5 points')])
+        self.assertEqual(facts[0]['dateline_text'], 'April to June 2026')
+        self.assertEqual(facts[0]['period'], '2026-06')
+
+    def test_lifts(self):
+        rows = [{'Borough': 'BRENT'}] * 6 + [{'Borough': 'HACKNEY'}] * 4
+        facts = H.lifts_facts(rows, '2026-07', prev_rows=[{}] * 8)
+        self.assertEqual([(f['label'], f['value']) for f in facts],
+                         [('Callouts', '10'), ('Per day', '0.3'),
+                          ('Most: Brent', '6'), ('Change on a year earlier', '+25%')])
+
+    def test_dateline_text_reaches_the_card(self):
+        import london_index_compose as C
+        facts = [H.fact('1', 'a', 's', 'u', period='2026-07-25', dateline_text='Four weeks, 28 June to 25 July 2026'),
+                 H.fact('2', 'b', 's', 'u', period='2026-07-25', dateline_text='Four weeks, 28 June to 25 July 2026')]
+        for i, f in enumerate(facts):
+            f['id'] = f'x:{i}'; f['vein'] = 'x'
+        c = C.compose({'opener': {'emoji': '', 'text': 'T'}, 'ids': ['x:0', 'x:1']}, facts)
+        self.assertEqual(c['dateline'], 'Four weeks, 28 June to 25 July 2026')
+
+
 class DatelineLead(unittest.TestCase):
     """compose() puts a fact's dateline_lead ahead of the date on the second
     line; a fact without one renders as before."""

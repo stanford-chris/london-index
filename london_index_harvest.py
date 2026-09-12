@@ -96,6 +96,15 @@ dcms_museums added 30 August):
   river_gauge   - the same six gauges, one per card, least recently featured
                   first: level now, its typical low and high, and where in
                   that range it sits. Live. Both added 12 September 2026.
+  reservoirs, tfl_journeys, congestion_charge, police_strength, arrests,
+  unemployment, lift_releases - seven London Datastore series added
+                  12 September 2026, each a small CSV or XLSX the Datastore
+                  itself serves: reservoir levels (daily), TfL journeys by
+                  mode (four-weekly), vehicles in the Congestion Charge zone
+                  (monthly), Met headcount (monthly), arrests (monthly),
+                  unemployment London against the UK (rolling quarter) and
+                  people freed from lifts by the fire brigade (monthly). See
+                  the section above HARVESTERS.
 
 Usage:
     python3 london_index_harvest.py            # pool as pretty JSON
@@ -438,7 +447,7 @@ def tfl_get_json(url, timeout=25):
 
 
 def fact(value, label, source, url, period=None, pair=None, context_note=None,
-         dateline_lead=None, fixed_opener=None, map_pin=None):
+         dateline_lead=None, fixed_opener=None, map_pin=None, dateline_text=None):
     """`pair` tags a fact as part of a pre-detected juxtaposition — a group
     of facts sharing one pair id are offered to the selector as a single
     unit worth building a card around, the same mechanism Seoul Index's
@@ -475,11 +484,17 @@ def fact(value, label, source, url, period=None, pair=None, context_note=None,
 
     `map_pin` ({'name', 'lat', 'lng'}) asks london_index_post.py for a
     threaded map reply (london_index_card.render_borough_map) with that
-    borough highlighted and a one-mile circle at those coordinates."""
+    borough highlighted and a one-mile circle at those coordinates.
+
+    `dateline_text` is the second line spelled out in full, for a period
+    that is neither a calendar month nor a day: TfL's four-week reporting
+    periods ("Four weeks to 25 July 2026") and the ONS rolling quarter
+    ("April to June 2026"). compose() uses it verbatim, with any
+    dateline_lead in front, when every pick carries the same one."""
     return {'value': value, 'label': label, 'source': source, 'url': url,
             'period': period, 'pair': pair, 'context_note': context_note,
             'dateline_lead': dateline_lead, 'fixed_opener': fixed_opener,
-            'map_pin': map_pin}
+            'map_pin': map_pin, 'dateline_text': dateline_text}
 
 
 def pct_of_baseline(fraction):
@@ -2375,6 +2390,454 @@ def harvest_rail_departures():
         facts[0]['note'] = f'{len(failed)} of {len(RAIL_TERMINI)} termini unusable: {failed}'
     return facts, None
 
+
+# --- Seven London Datastore series (12 September 2026) ----------------------
+# Chris: "Is there not something more we could use? Seems like a good source
+# of material." A survey of the 145 datasets updated since March found these
+# seven regular numeric series with small machine-readable files, each read
+# here from the Datastore's own download URL every run (the largest is
+# 2.3 MB). Every builder is pure and tested on the file's real header shape;
+# every harvester refuses plainly on a changed header or an empty series
+# rather than posting a zero. Publisher credit stays data.london.gov.uk,
+# already on every source line and in the pinned thread.
+DATASTORE = 'London Datastore'
+
+
+def _download_text(url, timeout=60):
+    body = curl(url, timeout=timeout)
+    return body.lstrip('﻿') if body else None
+
+
+def _download_xlsx_rows(url, sheet=None, timeout=90):
+    """Rows of one sheet (the first, or `sheet` by name) as tuples, or None."""
+    with tempfile.TemporaryDirectory() as td:
+        path = Path(td) / 'f.xlsx'
+        r = subprocess.run(['curl', '-sS', '-L', '--max-time', str(timeout), '-o', str(path), url],
+                           capture_output=True)
+        if r.returncode != 0 or not path.exists():
+            return None
+        try:
+            import openpyxl
+            wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+        except Exception:  # noqa: BLE001 - a bad download is a refusal, not a crash
+            return None
+        ws = wb[sheet] if sheet and sheet in wb.sheetnames else wb.worksheets[0]
+        return [row for row in ws.iter_rows(values_only=True) if any(v is not None for v in row)]
+
+
+def _csv_rows(text):
+    import csv
+    import io
+    rows = [r for r in csv.reader(io.StringIO(text)) if any(c.strip() for c in r)]
+    return rows
+
+
+def _month_label(s):
+    """'Jul-26' -> '2026-07'."""
+    return datetime.strptime(s.strip(), '%b-%y').strftime('%Y-%m')
+
+
+def _day_label(s):
+    """'31-Aug-26' -> '2026-08-31'."""
+    return datetime.strptime(s.strip(), '%d-%b-%y').strftime('%Y-%m-%d')
+
+
+def _num(s):
+    return float(str(s).replace(',', '').strip())
+
+
+def _points(now, before):
+    d = round(now - before)
+    return f'+{d} points' if d > 0 else f'−{abs(d)} points' if d < 0 else 'unchanged'
+
+
+# 1. Reservoir levels: daily since 1989, percent of usable capacity.
+RESERVOIR_URL = 'https://data.london.gov.uk/download/24ry5/778eefb5-8cef-4d16-a4c8-77dee7ce7e81/london_reservoir_levels.csv'
+RESERVOIR_PAGE = 'https://data.london.gov.uk/dataset/london-reservoir-levels'
+RESERVOIR_NOTE = ('Thames Water’s Lower Thames and Lower Lee reservoir groups; usable capacity '
+                  'leaves out water kept back for the environment')
+
+
+def reservoir_facts(rows, url=RESERVOIR_PAGE):
+    """`rows` are the CSV rows including the header: date, month, year,
+    lower_lee_group, lower_thames_group. The newest day's two levels, each
+    against the same date a year earlier, and the Thames group against its
+    average for that date over every year in the series."""
+    header = [c.strip().lower() for c in rows[0]]
+    if header[:5] != ['date', 'month', 'year', 'lower_lee_group', 'lower_thames_group']:
+        raise ValueError(f'reservoir header changed: {header}')
+    series = {}
+    for r in rows[1:]:
+        try:
+            day = _day_label(r[0])
+            series[day] = (_num(r[3]), _num(r[4]))
+        except (ValueError, IndexError):
+            continue
+    if not series:
+        raise ValueError('no reservoir rows parsed')
+    newest = max(series)
+    lee, thames = series[newest]
+    y, m, d = newest.split('-')
+    year_ago = f'{int(y) - 1}-{m}-{d}'
+    same_date = [v[1] for k, v in series.items() if k[5:] == f'{m}-{d}']
+    mk = lambda v, label: fact(v, label, f'{DATASTORE} (Thames Water reservoir levels)', url,
+                               period=newest, pair='reservoir_all', context_note=RESERVOIR_NOTE,
+                               dateline_lead='Percent of usable capacity')
+    facts = [mk(f'{thames:.0f}%', 'Lower Thames group'), mk(f'{lee:.0f}%', 'Lower Lee group')]
+    if year_ago in series:
+        facts.append(mk(_points(thames, series[year_ago][1]), 'Thames group, on a year earlier'))
+    if len(same_date) >= 10:
+        facts.append(mk(f'{sum(same_date) / len(same_date):.0f}%',
+                        f'Thames group, average for the date since {min(series)[:4]}'))
+    return facts
+
+
+def harvest_reservoirs():
+    text = _download_text(RESERVOIR_URL)
+    if not text:
+        return [], 'reservoir levels download failed'
+    try:
+        return reservoir_facts(_csv_rows(text)), None
+    except ValueError as e:
+        return [], str(e)
+
+
+# 2. TfL journeys by mode, per four-week reporting period.
+JOURNEYS_URL = 'https://data.london.gov.uk/download/ep8ow/06a805f6-77c6-481a-8b08-ddef56afffdd/tfl-journeys-type.csv'
+JOURNEYS_PAGE = 'https://data.london.gov.uk/dataset/public-transport-journeys-type-transport'
+JOURNEYS_NOTE = 'TfL counts journeys by four-week reporting period; figures in millions'
+JOURNEY_MODES = {'Bus journeys (m)': 'Bus', 'Underground journeys (m)': 'Underground',
+                 'DLR Journeys (m)': 'DLR', 'Tram Journeys (m)': 'Tram',
+                 'Overground Journeys (m)': 'Overground', 'London Cable Car Journeys (m)': 'Cable car',
+                 'TfL Rail Journeys (m)': 'Elizabeth line'}
+PERIODS_PER_YEAR = 13
+
+
+def journey_facts(rows, url=JOURNEYS_PAGE):
+    """`rows` are the CSV rows including the header. The newest period's
+    journeys by mode, ranked (journeys_top), the total, and the total
+    against the same period a year earlier (13 periods back)."""
+    header = [c.strip() for c in rows[0]]
+    idx = {name: header.index(name) for name in JOURNEY_MODES if name in header}
+    if len(idx) < 4 or 'Period ending' not in header:
+        raise ValueError(f'journeys header changed: {header}')
+    end_i = header.index('Period ending')
+    begin_i = header.index('Period beginning')
+    periods = []
+    for r in rows[1:]:
+        try:
+            end = _day_label(r[end_i]); begin = _day_label(r[begin_i])
+        except (ValueError, IndexError):
+            continue
+        modes = {}
+        for name, i in idx.items():
+            try:
+                modes[JOURNEY_MODES[name]] = _num(r[i])
+            except (ValueError, IndexError):
+                pass
+        if modes:
+            periods.append((end, begin, modes))
+    if not periods:
+        raise ValueError('no journey periods parsed')
+    periods.sort()
+    end, begin, modes = periods[-1]
+    d0 = datetime.strptime(begin, '%Y-%m-%d'); d1 = datetime.strptime(end, '%Y-%m-%d')
+    span = (f'{d0.day} {d0.strftime("%B")} to {d1.day} {d1.strftime("%B %Y")}'
+            if d0.month != d1.month else f'{d0.day} to {d1.day} {d1.strftime("%B %Y")}')
+    text = f'Four weeks, {span}'
+    mk = lambda v, label, pair=None: fact(v, label, f'{DATASTORE} (TfL journeys)', url, period=end,
+                                          pair=pair, context_note=JOURNEYS_NOTE, dateline_text=text)
+    total = sum(modes.values())
+    facts = [mk(f'{total:.1f} million', 'Journeys on TfL, all modes')]
+    if len(periods) > PERIODS_PER_YEAR:
+        prev_total = sum(periods[-1 - PERIODS_PER_YEAR][2].values())
+        change = _pct_change(total, prev_total)
+        if change is not None:
+            facts.append(mk(change, 'Change on the same period a year earlier'))
+    for mode, v in sorted(modes.items(), key=lambda kv: -kv[1])[:4]:
+        facts.append(mk(f'{v:.1f} million', mode, 'journeys_top'))
+    return facts
+
+
+def harvest_tfl_journeys():
+    text = _download_text(JOURNEYS_URL)
+    if not text:
+        return [], 'TfL journeys download failed'
+    try:
+        return journey_facts(_csv_rows(text)), None
+    except ValueError as e:
+        return [], str(e)
+
+
+# 3. Congestion Charge zone: vehicles seen in charging hours, monthly.
+CCZ_URL = 'https://data.london.gov.uk/download/2r88d/601a15a2-352c-46be-adae-e049556314a3/tfl-vehicles-c-charge-zone.csv'
+CCZ_PAGE = 'https://data.london.gov.uk/dataset/camera-captures-and-confirmed-vehicles-seen-congestion-charge-zone-month'
+CCZ_NOTE = 'TfL camera counts of vehicles in the zone during charging hours'
+
+
+def congestion_facts(rows, url=CCZ_PAGE):
+    header = [c.strip() for c in rows[0]]
+    if not header[0].startswith('Month') or len(header) < 4:
+        raise ValueError(f'congestion charge header changed: {header}')
+    months = {}
+    for r in rows[1:]:
+        try:
+            ym = _month_label(r[0])
+            confirmed = _num(r[2]) if r[2].strip() else None
+            days = _num(r[3]) if r[3].strip() else None
+        except (ValueError, IndexError):
+            continue
+        if confirmed:
+            months[ym] = (confirmed, days)
+    if not months:
+        raise ValueError('no congestion charge months parsed')
+    ym = max(months)
+    confirmed, days = months[ym]
+    mk = lambda v, label: fact(v, label, f'{DATASTORE} (TfL Congestion Charge)', url, period=ym,
+                               pair='ccz_all', context_note=CCZ_NOTE)
+    facts = [mk(f'{confirmed:,.0f}', 'Vehicles seen in charging hours')]
+    if days:
+        facts.append(mk(f'{confirmed / days:,.0f}', 'Per charging day'))
+        facts.append(mk(f'{days:.0f}', 'Charging days'))
+    prev = months.get(_shift_month(ym, 12))
+    if prev:
+        change = _pct_change(confirmed, prev[0])
+        if change is not None:
+            facts.append(mk(change, 'Change on a year earlier'))
+    return facts
+
+
+def harvest_congestion_charge():
+    text = _download_text(CCZ_URL)
+    if not text:
+        return [], 'Congestion Charge download failed'
+    try:
+        return congestion_facts(_csv_rows(text)), None
+    except ValueError as e:
+        return [], str(e)
+
+
+# 4. Police force strength, monthly, full-time equivalents.
+STRENGTH_URL = 'https://data.london.gov.uk/download/e7xoj/e442f07c-bc39-4c61-a62b-0e5957ea474f/Police_Force_Strength.csv'
+STRENGTH_PAGE = 'https://data.london.gov.uk/dataset/police-force-strength'
+STRENGTH_NOTE = 'Full-time equivalents, as MOPAC reports them to the London Assembly'
+
+
+def strength_facts(rows, url=STRENGTH_PAGE):
+    header = [c.strip() for c in rows[0]]
+    if header[:4] != ['Date', 'Police Officer Strength', 'Police Staff Strength', 'PCSO Strength']:
+        raise ValueError(f'police strength header changed: {header}')
+    months = {}
+    for r in rows[1:]:
+        try:
+            months[_month_label(r[0])] = (_num(r[1]), _num(r[2]), _num(r[3]))
+        except (ValueError, IndexError):
+            continue
+    if not months:
+        raise ValueError('no police strength months parsed')
+    ym = max(months)
+    officers, staff, pcso = months[ym]
+    mk = lambda v, label: fact(v, label, f'{DATASTORE} (MOPAC police strength)', url, period=ym,
+                               pair='strength_all', context_note=STRENGTH_NOTE)
+    facts = [mk(f'{officers:,.0f}', 'Police officers'), mk(f'{staff:,.0f}', 'Civilian staff'),
+             mk(f'{pcso:,.0f}', 'Community support officers')]
+    prev = months.get(_shift_month(ym, 12))
+    if prev:
+        change = _pct_change(officers, prev[0])
+        if change is not None:
+            facts.append(mk(change, 'Officers, change on a year earlier'))
+    return facts
+
+
+def harvest_police_strength():
+    text = _download_text(STRENGTH_URL)
+    if not text:
+        return [], 'police strength download failed'
+    try:
+        return strength_facts(_csv_rows(text)), None
+    except ValueError as e:
+        return [], str(e)
+
+
+# 5. Arrests by the Metropolitan Police, monthly, from the custody dashboard.
+ARRESTS_URL = ('https://data.london.gov.uk/download/2r7po/f8f/'
+               'MPS%20Custody%20-%20Arrests%20-%202022%2001%20to%202026%2008.xlsx')
+ARRESTS_PAGE = 'https://data.london.gov.uk/dataset/mps-custody-arrests-disposals-strip-searches'
+ARRESTS_NOTE = 'Metropolitan Police custody records; the offence is the first recorded at arrest'
+
+
+def arrests_facts(rows, url=ARRESTS_PAGE):
+    """`rows` are the sheet's rows including the header: Arrest Year, Arrest
+    Month, Arrest Month Name, Gender, Age Group, Ethnicity, First Arrest
+    Offence, Domestic Abuse Flag, Arrest Count."""
+    header = [str(c).strip() for c in rows[0]]
+    need = ['Arrest Year', 'Arrest Month', 'First Arrest Offence', 'Domestic Abuse Flag', 'Arrest Count']
+    if not all(n in header for n in need):
+        raise ValueError(f'arrests header changed: {header}')
+    yi, mi, oi, di, ci = (header.index(n) for n in need)
+    months = {}
+    for r in rows[1:]:
+        try:
+            ym = f'{int(r[yi]):04d}-{int(r[mi]):02d}'
+            n = int(r[ci])
+        except (TypeError, ValueError, IndexError):
+            continue
+        m = months.setdefault(ym, {'total': 0, 'offences': {}, 'da': 0})
+        m['total'] += n
+        off = str(r[oi]).strip()
+        m['offences'][off] = m['offences'].get(off, 0) + n
+        if str(r[di]).strip().lower() == 'yes':
+            m['da'] += n
+    if not months:
+        raise ValueError('no arrest months parsed')
+    ym = max(months)
+    m = months[ym]
+    # The dashboard's largest bucket is "Other Offence", which names nothing;
+    # the most common NAMED offence is the fact (measured on August 2026:
+    # 4,979 of 12,731 arrests were "Other Offence").
+    named = {k: v for k, v in m['offences'].items() if not k.lower().startswith('other')} or m['offences']
+    top = max(named.items(), key=lambda kv: kv[1])
+    mk = lambda v, label: fact(v, label, f'{DATASTORE} (MPS custody data)', url, period=ym,
+                               pair='arrests_all', context_note=ARRESTS_NOTE)
+    facts = [mk(f'{m["total"]:,}', 'Arrests'), mk(f'{top[1]:,}', f'Most common offence: {top[0]}'),
+             mk(f'{m["da"]:,}', 'Flagged as domestic abuse')]
+    prev = months.get(_shift_month(ym, 12))
+    if prev:
+        change = _pct_change(m['total'], prev['total'])
+        if change is not None:
+            facts.append(mk(change, 'Change on a year earlier'))
+    return facts
+
+
+def harvest_arrests():
+    rows = _download_xlsx_rows(ARRESTS_URL, sheet='Arrests')
+    if not rows:
+        return [], 'arrests download failed'
+    try:
+        return arrests_facts(rows), None
+    except ValueError as e:
+        return [], str(e)
+
+
+# 6. Unemployment, London against the UK, rolling quarter (ONS via the GLA).
+UNEMPLOYMENT_URL = 'https://data.london.gov.uk/download/e5mnw/8a29ec0c-9de3-4777-832f-49ef8c2b4d14/unemployment-region.xlsx'
+UNEMPLOYMENT_PAGE = 'https://data.london.gov.uk/dataset/unemployment-rate-region'
+UNEMPLOYMENT_NOTE = 'ONS Labour Force Survey estimates, people aged 16 and over'
+MONTHS_FULL = {'Jan': 'January', 'Feb': 'February', 'Mar': 'March', 'Apr': 'April', 'May': 'May',
+               'Jun': 'June', 'Jul': 'July', 'Aug': 'August', 'Sep': 'September', 'Oct': 'October',
+               'Nov': 'November', 'Dec': 'December'}
+
+
+def _quarter_text(label):
+    """'Apr-Jun 2026' -> 'April to June 2026'."""
+    m = re.fullmatch(r'([A-Z][a-z]{2})-([A-Z][a-z]{2}) (\d{4})', label.strip())
+    if not m:
+        raise ValueError(f'unexpected quarter label {label!r}')
+    return f'{MONTHS_FULL[m.group(1)]} to {MONTHS_FULL[m.group(2)]} {m.group(3)}'
+
+
+def unemployment_facts(rows, url=UNEMPLOYMENT_PAGE):
+    """`rows` are the 'Long-term trend' sheet: a label column ('Apr-Jun
+    2026'), London unemployed and rate, a gap, UK unemployed and rate."""
+    data = []
+    for r in rows:
+        if not r or not isinstance(r[0], str):
+            continue
+        try:
+            text = _quarter_text(r[0])
+        except ValueError:
+            continue
+        try:
+            data.append((text, float(r[1]), float(r[2]), float(r[4]), float(r[5])))
+        except (TypeError, ValueError, IndexError):
+            continue
+    if len(data) < 5:
+        raise ValueError(f'unemployment sheet shape changed: {len(data)} quarters parsed')
+    text, ldn_n, ldn_rate, uk_n, uk_rate = data[-1]
+    period = f'{int(text[-4:])}-{list(MONTHS_FULL.values()).index(text.split(" to ")[1].rsplit(" ", 1)[0]) + 1:02d}'
+    mk = lambda v, label: fact(v, label, f'{DATASTORE} (ONS unemployment)', url, period=period,
+                               pair='jobless_all', context_note=UNEMPLOYMENT_NOTE, dateline_text=text)
+    facts = [mk(f'{ldn_rate:.1f}%', 'Unemployment rate, London'), mk(f'{uk_rate:.1f}%', 'Unemployment rate, UK'),
+             mk(f'{round(ldn_n, -3):,.0f}', 'Londoners unemployed')]
+    if len(data) >= 13:   # rolling quarters step by a month, so a year is 12 rows back
+        facts.append(mk(_rate_change(ldn_rate, data[-13][2]), 'London rate, on a year earlier'))
+    return facts
+
+
+def _rate_change(now, before):
+    d = now - before
+    return f'+{d:.1f} points' if d > 0.05 else f'−{abs(d):.1f} points' if d < -0.05 else 'unchanged'
+
+
+def harvest_unemployment():
+    rows = _download_xlsx_rows(UNEMPLOYMENT_URL, sheet='Long-term trend')
+    if not rows:
+        return [], 'unemployment download failed'
+    try:
+        return unemployment_facts(rows), None
+    except ValueError as e:
+        return [], str(e)
+
+
+# 7. People freed from lifts by the fire brigade, monthly.
+LIFTS_URL = ('https://data.london.gov.uk/download/2g980/46561645-a73e-473e-a45c-868b8599a280/'
+             'Shut%20in%20lifts%20incidents%20attended%20by%20LFB%20in%20last%2036%20months.xlsx')
+LIFTS_PAGE = 'https://data.london.gov.uk/dataset/shut-in-lift-releases-lift-entrapments-attended-by-lfb'
+LIFTS_NOTE = 'London Fire Brigade “shut in lift” releases; the file holds the last 36 months'
+
+
+def lifts_facts(rows, ym, url=LIFTS_PAGE, prev_rows=None):
+    """`rows` are one month's records as dicts (the sheet's header names);
+    `prev_rows` the same month a year earlier, when the file has it."""
+    boroughs = {}
+    for r in rows:
+        b = str(r.get('Borough') or '').strip()
+        if b:
+            boroughs[b] = boroughs.get(b, 0) + 1
+    y, m = (int(x) for x in ym.split('-'))
+    days = (datetime(y + (m == 12), m % 12 + 1, 1) - datetime(y, m, 1)).days
+    mk = lambda v, label: fact(v, label, f'{DATASTORE} (LFB lift releases)', url, period=ym,
+                               pair='lifts_all', context_note=LIFTS_NOTE)
+    facts = [mk(f'{len(rows):,}', 'Callouts'), mk(f'{len(rows) / days:.1f}', 'Per day')]
+    if boroughs:
+        name, n = max(boroughs.items(), key=lambda kv: kv[1])
+        facts.append(mk(f'{n:,}', f'Most: {name.title()}'))
+    if prev_rows:
+        change = _pct_change(len(rows), len(prev_rows))
+        if change is not None:
+            facts.append(mk(change, 'Change on a year earlier'))
+    return facts
+
+
+def harvest_lift_releases():
+    rows = _download_xlsx_rows(LIFTS_URL)
+    if not rows:
+        return [], 'lift releases download failed'
+    header = [str(h).strip() for h in rows[0]]
+    if 'DateTimeOfCall' not in header or 'Borough' not in header:
+        return [], f'lift releases header changed: {header[:8]}'
+    by_month = {}
+    for row in rows[1:]:
+        rec = dict(zip(header, row))
+        when = rec.get('DateTimeOfCall')
+        if isinstance(when, str):
+            try:
+                when = datetime.fromisoformat(when[:19])
+            except ValueError:
+                continue
+        if not isinstance(when, datetime):
+            continue
+        by_month.setdefault(when.strftime('%Y-%m'), []).append(rec)
+    this_month = datetime.now(timezone.utc).strftime('%Y-%m')
+    months = sorted(m for m in by_month if m < this_month)
+    if not months:
+        return [], 'no complete month in the lift releases file'
+    ym = months[-1]
+    if len(by_month[ym]) < ANIMALS_MIN_ROWS:
+        return [], f'only {len(by_month[ym])} lift releases in {ym}; refusing a partial month'
+    return lifts_facts(by_month[ym], ym, prev_rows=by_month.get(_shift_month(ym, 12))), None
+
+
 HARVESTERS = {
     'tfl_bikes': harvest_tfl_bikes,
     # tfl_crowding PAUSED 31 August 2026, Chris's call: no more Tube posts
@@ -2414,6 +2877,14 @@ HARVESTERS = {
     'rail_departures': harvest_rail_departures,
     'rail_station': harvest_rail_station,
     'river_gauge': harvest_river_gauge,
+    # The seven London Datastore series, 12 September 2026.
+    'reservoirs': harvest_reservoirs,
+    'tfl_journeys': harvest_tfl_journeys,
+    'congestion_charge': harvest_congestion_charge,
+    'police_strength': harvest_police_strength,
+    'arrests': harvest_arrests,
+    'unemployment': harvest_unemployment,
+    'lift_releases': harvest_lift_releases,
 }
 
 

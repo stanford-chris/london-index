@@ -58,6 +58,13 @@ The title names what is measured ("Reported crime", "House prices, by borough").
 | `rail_departures` | Rail Data Marketplace Live Departure Board (Rail Delivery Group): trains departing 13 main stations in the next hour, on time, late and cancelled; the stations ranked; late trains by operator | live |
 | `rail_station` | the same boards: one station per card, its own departures | live |
 | `river_gauge` | Environment Agency: one of the six gauges per card against its own typical range | live |
+| `reservoirs` | London Datastore: Thames Water reservoir levels, percent of usable capacity, against a year earlier and the average for the date since 1989 | daily |
+| `tfl_journeys` | London Datastore: TfL journeys by mode per four-week period, with the year-on-year change | every four weeks |
+| `congestion_charge` | London Datastore: vehicles seen in the Congestion Charge zone in charging hours | monthly |
+| `police_strength` | London Datastore: Metropolitan Police officers, staff and PCSOs, full-time equivalent | monthly |
+| `arrests` | London Datastore: Met arrests, most common named offence, domestic-abuse flagged | monthly |
+| `unemployment` | London Datastore: ONS unemployment rate, London against the UK, rolling quarter | quarterly |
+| `lift_releases` | London Datastore: people freed from lifts by the fire brigade, by month and borough | monthly |
 
 A daily weather card (`london_weather_post.py`) uses the Met Office Weather DataHub and posts separately.
 
