@@ -314,6 +314,8 @@ FIXED_OPENERS = {
     ('road_works', 'roads_all'): {'emoji': '🚧', 'text': 'Roadworks and disruptions'},
     ('lfb_animals', 'animals_top'): {'emoji': '🚒', 'text': 'Animal rescues by the fire brigade'},
     ('flood', 'flood_gap'): {'emoji': '🌊', 'text': 'Flood warnings and alerts'},
+    ('rail_departures', 'rail_all'): {'emoji': '🚆', 'text': 'Trains from London’s termini'},
+    ('rail_departures', 'rail_top'): {'emoji': '🚆', 'text': 'Busiest London termini'},
 }
 
 

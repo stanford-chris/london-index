@@ -79,6 +79,11 @@ dcms_museums added 30 August):
                   rescues by kind of animal and borough, and the brigade's
                   own notional cost. The four above were added 12 September
                   2026; see harvest_police_boroughs()'s comment for why.
+  rail_departures - Rail Data Marketplace's Live Departure Board (Rail
+                  Delivery Group): National Rail trains due in the next 60
+                  minutes from 13 London termini, on time, late, cancelled,
+                  and the termini ranked. Live. Key in Keychain
+                  (london-index / rdm-ldbws-key). Added 12 September 2026.
 
 Usage:
     python3 london_index_harvest.py            # pool as pretty JSON
@@ -1864,6 +1869,120 @@ def harvest_lfb_animals():
     return animal_facts(rows, ym), None
 
 
+
+# --- National Rail departures from London's termini (live, RDM LDBWS) ------
+# Rail Data Marketplace's Live Departure Board (publisher Rail Delivery
+# Group, price 0, licence: attribution required, derived facts may be
+# published). Registration approved and the subscription activated on
+# 1 September 2026 (the emails are in the iCloud account); the consumer key
+# went into the Keychain on 12 September, the day this vein was built.
+# The 13 termini were each verified live by the API's own locationName,
+# not recalled. Blackfriars is a through station and is left out on purpose.
+RAIL_TERMINI = {
+    'Paddington': 'PAD', 'King’s Cross': 'KGX', 'Euston': 'EUS', 'Waterloo': 'WAT',
+    'Victoria': 'VIC', 'Liverpool Street': 'LST', 'London Bridge': 'LBG',
+    'St Pancras': 'STP', 'Charing Cross': 'CHX', 'Cannon Street': 'CST',
+    'Fenchurch Street': 'FST', 'Marylebone': 'MYB', 'Moorgate': 'MOG',
+}
+RAIL_API = ('https://api1.raildata.org.uk/1010-live-departure-board-dep1_2/LDBWS/api/'
+            '20220120/GetDepartureBoard/{crs}?numRows=150&timeWindow={window}&timeOffset=0')
+RAIL_WINDOW_MIN = 60
+RAIL_SOURCE = 'National Rail (Rail Delivery Group)'
+RAIL_PAGE = 'https://www.nationalrail.co.uk/'
+RAIL_NOTE = (f'National Rail trains due in the next {RAIL_WINDOW_MIN} minutes from '
+             f'{len(RAIL_TERMINI)} London termini, as on the live boards')
+RAIL_TOP_N = 4
+# Under this many departures across every terminus the boards are the
+# small hours (9 at 1:36 a.m. on 12 September 2026), not a city, and no
+# card is made. Under RAIL_MIN_STATIONS answering, a partial London is not
+# ranked at all.
+RAIL_MIN_DEPARTURES = 20
+RAIL_MIN_STATIONS = 10
+
+
+def _rdm_key():
+    r = subprocess.run(['security', 'find-generic-password', '-a', 'london-index',
+                        '-s', 'rdm-ldbws-key', '-w'], capture_output=True, text=True)
+    return r.stdout.strip() if r.returncode == 0 and r.stdout.strip() else None
+
+
+def get_json_with_headers(url, headers, timeout=25):
+    cmd = ['curl', '-sS', '--max-time', str(timeout)]
+    for k, v in headers.items():
+        cmd += ['-H', f'{k}: {v}']
+    result = subprocess.run(cmd + [url], capture_output=True, text=True)
+    if result.returncode != 0:
+        return None
+    try:
+        return json.loads(result.stdout)
+    except ValueError:
+        return None
+
+
+def classify_departure(svc):
+    """'cancelled', 'late', 'on time' or 'other', from the board's own etd:
+    "On time", "Cancelled", "Delayed" (no estimate), or an estimated time
+    that differs from the scheduled one. An etd equal to the std is on
+    time. Anything else ("No report", an empty field) is counted in the
+    total and nowhere else."""
+    etd = (svc.get('etd') or '').strip()
+    if svc.get('isCancelled') or etd == 'Cancelled':
+        return 'cancelled'
+    if etd == 'On time' or (etd and etd == (svc.get('std') or '').strip()):
+        return 'on time'
+    if etd == 'Delayed' or re.fullmatch(r'\d\d:\d\d', etd):
+        return 'late'
+    return 'other'
+
+
+def rail_facts(boards, url=RAIL_PAGE):
+    """`boards` maps terminus name -> list of train services (the board's
+    trainServices). Two shapes:
+      - "rail_all": trains due within the hour, on time, running late,
+        cancelled (any 2 to 4, fixed opener)
+      - "rail_top": the RAIL_TOP_N termini with the most departures due,
+        ranked"""
+    mk = lambda v, label, pair: fact(f'{v:,}', label, RAIL_SOURCE, url, pair=pair,
+                                     context_note=RAIL_NOTE)
+    counts = {'on time': 0, 'late': 0, 'cancelled': 0, 'other': 0}
+    per = {}
+    for name, services in boards.items():
+        per[name] = len(services)
+        for svc in services:
+            counts[classify_departure(svc)] += 1
+    total = sum(per.values())
+    facts = [mk(total, 'Trains due within the hour', 'rail_all'),
+             mk(counts['on time'], 'On time', 'rail_all'),
+             mk(counts['late'], 'Running late', 'rail_all'),
+             mk(counts['cancelled'], 'Cancelled', 'rail_all')]
+    for name, n in sorted(per.items(), key=lambda kv: -kv[1])[:RAIL_TOP_N]:
+        facts.append(mk(n, name, 'rail_top'))
+    return facts
+
+
+def harvest_rail_departures():
+    key = _rdm_key()
+    if not key:
+        return [], 'no Rail Data Marketplace key in Keychain (london-index / rdm-ldbws-key)'
+    boards = {}
+    failed = []
+    for name, crs in RAIL_TERMINI.items():
+        d = get_json_with_headers(RAIL_API.format(crs=crs, window=RAIL_WINDOW_MIN),
+                                  {'x-apikey': key, 'Accept': 'application/json'})
+        if not isinstance(d, dict) or d.get('crs') != crs or not d.get('areServicesAvailable', True):
+            failed.append(name)
+            continue
+        boards[name] = d.get('trainServices') or []
+    if len(boards) < RAIL_MIN_STATIONS:
+        return [], f'only {len(boards)} of {len(RAIL_TERMINI)} termini answered; failed: {failed}'
+    total = sum(len(v) for v in boards.values())
+    if total < RAIL_MIN_DEPARTURES:
+        return [], f'only {total} departures due across the termini; boards too quiet for a card'
+    facts = rail_facts(boards)
+    if failed:
+        facts[0]['note'] = f'{len(failed)} of {len(RAIL_TERMINI)} termini unusable: {failed}'
+    return facts, None
+
 HARVESTERS = {
     'tfl_bikes': harvest_tfl_bikes,
     # tfl_crowding PAUSED 31 August 2026, Chris's call: no more Tube posts
@@ -1899,6 +2018,7 @@ HARVESTERS = {
     'house_prices': harvest_house_prices,
     'road_works': harvest_road_works,
     'lfb_animals': harvest_lfb_animals,
+    'rail_departures': harvest_rail_departures,
 }
 
 

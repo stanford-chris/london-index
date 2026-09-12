@@ -264,7 +264,7 @@ harvester since it isn't needed for reads.
 | data.police.uk | ✅ Live, no key ever needed |
 | London Datastore (cycle hires) | ✅ Live, no key ever needed |
 | London Air Quality Network | ✅ Live, no key ever needed |
-| **National Rail Darwin (LDBWS, via RDM)** | ⏳ Right product identified, licence verified, account registration submitted — pending approval, then Subscribe for API key |
+| **National Rail Darwin (LDBWS, via RDM)** | ✅ Approved and subscribed 1 September 2026; key in Keychain and wired in as `rail_departures` 12 September (see that session) |
 | **DCMS museum visitor figures** | ✅ Live, wired in 30 August 2026 as the `dcms_museums` vein, filtered to the 13 London-based institutions |
 | **Ticketmaster Discovery API (events)** | ⏳ Decided on, terms verified, account not yet registered |
 | Met Office DataHub (forecast) | ⛔ Still blocked — real portal domain found but its own FAQ link 404s, and our browser can't reach `ibmcloud.com` anyway |
@@ -692,3 +692,38 @@ arithmetic now (`_shift_month`).
 - ⚠️ `london_index_post.py --dry-run` still writes `vein_last_at` to the
   state file, so a hand dry-run at 9:00 puts that vein on the 20-hour
   cooldown for the 12:30 run. Pre-existing; noted, not changed.
+
+### Rail departures vein, same session (12 September 2026)
+Chris asked where the Rail Data Marketplace key had got to. **The iCloud
+mailbox answered**: registration submitted 29 August, approved 1 September
+09:08 UTC (username `london_index`), and **"RDM: Subscription activated"
+at 10:28 UTC the same day** for the Live Departure Board, publisher Rail
+Delivery Group, price 0. The consumer key had simply never been copied out
+of the dashboard: nothing rail-shaped in the Keychain, and the 1Password
+item "Rail Data" held the login plus a 36-character "Confirmation key"
+saved ten minutes BEFORE the subscription existed, which the live API
+answered with `oauth.v2.InvalidApiKey`. The key lives on the subscription
+(My Subscriptions, Live Departure Board, Specification tab, per RDM's own
+users), not the licence page or the account. He fetched it; it went from
+the clipboard into the Keychain (`london-index` / `rdm-ldbws-key`, 48
+alphanumeric characters) and, at his ask, into the 1Password item as a
+concealed "Consumer key (Live Departure Board)" field, both read back and
+matched, and the API answered 200 with live Paddington departures.
+
+`rail_departures`: `GetDepartureBoard/{crs}?numRows=150&timeWindow=60`
+for 13 termini (`RAIL_TERMINI`, each verified by the API's own
+`locationName`; Blackfriars left out as a through station), header
+`x-apikey`. `rail_facts()` gives "rail_all" (trains due within the hour,
+on time, running late, cancelled, from the board's own `etd`:
+`classify_departure()`) and "rail_top" (the four termini with most due).
+⚠️ **Two refusals**: under `RAIL_MIN_DEPARTURES` (20) across every board
+the small hours make no card (measured: 6 at 1:40 a.m.), and under
+`RAIL_MIN_STATIONS` (10) answering, a partial London is not ranked. A
+board with `areServicesAvailable` false counts as failed. ⚠️ **The daytime
+card is unverified**: built at 1:38 a.m. London time, the shapes were
+rendered from the live 5-train boards by calling `rail_facts()` directly,
+and the first scheduled run (08:00 BST) is the real check. Attribution to
+Rail Delivery Group rides the source link (`RAIL_SOURCE`), as the licence
+requires. 5 more tests in `test_london_index_harvest.py` (27).
+⚠️ The pinned methodology thread's source reply still lacks both HM Land
+Registry and the Rail Delivery Group; that file is another session's.

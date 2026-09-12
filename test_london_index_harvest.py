@@ -219,6 +219,62 @@ class AnimalFacts(unittest.TestCase):
         self.assertFalse(any('Unknown' in l for l in labels))
 
 
+class RailFacts(unittest.TestCase):
+    def svc(self, std, etd, cancelled=False):
+        return {'std': std, 'etd': etd, 'isCancelled': cancelled}
+
+    def test_classification_from_the_board_itself(self):
+        self.assertEqual(H.classify_departure(self.svc('09:00', 'On time')), 'on time')
+        self.assertEqual(H.classify_departure(self.svc('09:00', '09:00')), 'on time')
+        self.assertEqual(H.classify_departure(self.svc('09:00', '09:07')), 'late')
+        self.assertEqual(H.classify_departure(self.svc('09:00', 'Delayed')), 'late')
+        self.assertEqual(H.classify_departure(self.svc('09:00', 'Cancelled')), 'cancelled')
+        self.assertEqual(H.classify_departure(self.svc('09:00', 'On time', cancelled=True)), 'cancelled')
+        self.assertEqual(H.classify_departure(self.svc('09:00', 'No report')), 'other')
+
+    def test_shapes(self):
+        boards = {'Waterloo': [self.svc('09:00', 'On time')] * 5 + [self.svc('09:10', '09:15')],
+                  'Euston': [self.svc('09:00', 'Cancelled')] + [self.svc('09:20', 'On time')] * 2,
+                  'Moorgate': [self.svc('09:05', 'No report')]}
+        facts = H.rail_facts(boards)
+        self.assertEqual([(f['label'], f['value'], f['pair']) for f in facts],
+                         [('Trains due within the hour', '10', 'rail_all'), ('On time', '7', 'rail_all'),
+                          ('Running late', '1', 'rail_all'), ('Cancelled', '1', 'rail_all'),
+                          ('Waterloo', '6', 'rail_top'), ('Euston', '3', 'rail_top'),
+                          ('Moorgate', '1', 'rail_top')])
+        self.assertTrue(all(f['period'] is None and f['context_note'] == H.RAIL_NOTE for f in facts))
+
+    def test_no_key_is_a_named_refusal_not_a_crash(self):
+        with unittest.mock.patch.object(H, '_rdm_key', return_value=None):
+            facts, err = H.harvest_rail_departures()
+        self.assertEqual(facts, [])
+        self.assertIn('rdm-ldbws-key', err)
+
+    def test_quiet_boards_make_no_card(self):
+        quiet = {'crs': None, 'trainServices': [self.svc('01:45', 'On time')], 'areServicesAvailable': True}
+        def fake(url, headers, timeout=25):
+            crs = url.split('GetDepartureBoard/')[1][:3]
+            return dict(quiet, crs=crs)
+        with unittest.mock.patch.object(H, '_rdm_key', return_value='k'), \
+             unittest.mock.patch.object(H, 'get_json_with_headers', side_effect=fake):
+            facts, err = H.harvest_rail_departures()
+        self.assertEqual(facts, [])
+        self.assertIn('too quiet', err)
+
+    def test_too_few_termini_answering_refuses_the_ranking(self):
+        def fake(url, headers, timeout=25):
+            crs = url.split('GetDepartureBoard/')[1][:3]
+            if crs in ('PAD', 'KGX', 'EUS'):
+                return {'crs': crs, 'trainServices': [self.svc('09:00', 'On time')] * 30,
+                        'areServicesAvailable': True}
+            return None
+        with unittest.mock.patch.object(H, '_rdm_key', return_value='k'), \
+             unittest.mock.patch.object(H, 'get_json_with_headers', side_effect=fake):
+            facts, err = H.harvest_rail_departures()
+        self.assertEqual(facts, [])
+        self.assertIn('termini answered', err)
+
+
 import unittest.mock  # noqa: E402  (used by HousePriceFacts)
 
 if __name__ == '__main__':
