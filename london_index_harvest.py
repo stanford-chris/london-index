@@ -2624,7 +2624,7 @@ def harvest_congestion_charge():
 # 4. Police force strength, monthly, full-time equivalents.
 STRENGTH_URL = 'https://data.london.gov.uk/download/e7xoj/e442f07c-bc39-4c61-a62b-0e5957ea474f/Police_Force_Strength.csv'
 STRENGTH_PAGE = 'https://data.london.gov.uk/dataset/police-force-strength'
-STRENGTH_NOTE = 'Full-time equivalents, as MOPAC reports them to the London Assembly'
+STRENGTH_NOTE = 'Full-time equivalents, as the Mayor’s Office for Policing and Crime reports them'
 
 
 def strength_facts(rows, url=STRENGTH_PAGE):
