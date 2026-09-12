@@ -30,9 +30,11 @@ A vein that has gone two days without leading is given a card to itself, so noth
 
 ## The cards
 
-The title names what is measured ("Reported crime", "House prices, by borough"). The second line carries the qualifier and the period or the clock ("Within a mile of each town hall, July 2026"; "Departures in the next hour, 13 main stations, 12 September at 8:00 a.m."). Each row is a label, a dotted leader and the value. A footnote, when there is one, says only what is left: the sample or the source. The alt text carries the title, the second line, every row and the footnote.
+The title names what is measured ("Reported crime", "House prices, by borough"). The second line carries the period or the clock, and a qualifier when the figures need one ("July 2026"; "Within a mile of Trafalgar Square, July 2026"; "Departures in the next hour, 13 main stations, 12 September at 8:00 a.m."). Each row is a label, a dotted leader and the value. A footnote, when there is one, says only what is left: the sample or the source. The alt text carries the title, the second line, every row and the footnote.
 
-**The spotlight borough** is one card about one place: its reported crime, most common category, change on the month and rank among the 33 boroughs, walking through all 33 in turn, least recently featured first. It threads a map: every borough in outline, the featured one filled, and a one-mile circle around its town hall, which is the area the figures actually cover.
+**Spotlight cards** are about one place, walking through a set in turn, least recently featured first. The spotlight borough gives one borough's reported crime, most common category, change on the month and rank among the 33, and threads a map: every borough in outline, the featured one filled, which is the area counted. The station spotlight gives one main station's own departure board, and the river gauge spotlight one gauge's level against its own typical range.
+
+**Borough crime is counted whole.** data.police.uk publishes street-level reports and takes a polygon; each borough's polygon is its Office for National Statistics boundary, the same outline the map draws. The 33 counts are fetched once a month and cached, since the data changes monthly. Until 12 September 2026 the borough figures were a one-mile sample around each town hall, which understated some boroughs by more than half and ranked the wrong ones.
 
 ## Data sources
 
@@ -44,8 +46,8 @@ The title names what is measured ("Reported crime", "House prices, by borough").
 | `flood` | Environment Agency flood warnings and alerts for London | live |
 | `river_levels` | Environment Agency gauges: six London rivers against their own typical range | live |
 | `police` | data.police.uk: reported crime within a mile of Trafalgar Square | monthly, about two months behind |
-| `police_boroughs` | data.police.uk: eight boroughs sampled within a mile of the town hall | monthly |
-| `police_spotlight` | data.police.uk: one of the 33 boroughs per card, same sample | monthly |
+| `police_boroughs` | data.police.uk: all 33 boroughs counted whole, ranked, the movers on the month, where each crime type was highest | monthly |
+| `police_spotlight` | data.police.uk: one of the 33 boroughs per card, counted whole, with a map | monthly |
 | `stop_search` | data.police.uk: Metropolitan Police stop and search | monthly |
 | `cycle_hires` | London Datastore: daily Santander Cycles hires | periodic |
 | `laqn` | London Air Quality Network: current readings by borough | live |
@@ -53,7 +55,9 @@ The title names what is measured ("Reported crime", "House prices, by borough").
 | `house_prices` | HM Land Registry UK House Price Index: London and all 33 boroughs | monthly, about two months behind |
 | `road_works` | TfL Road disruptions on the Transport for London Road Network | live |
 | `lfb_animals` | London Datastore: London Fire Brigade animal rescues | monthly |
-| `rail_departures` | Rail Data Marketplace Live Departure Board (Rail Delivery Group): trains departing 13 main stations in the next hour | live |
+| `rail_departures` | Rail Data Marketplace Live Departure Board (Rail Delivery Group): trains departing 13 main stations in the next hour, on time, late and cancelled; the stations ranked; late trains by operator | live |
+| `rail_station` | the same boards: one station per card, its own departures | live |
+| `river_gauge` | Environment Agency: one of the six gauges per card against its own typical range | live |
 
 A daily weather card (`london_weather_post.py`) uses the Met Office Weather DataHub and posts separately.
 
