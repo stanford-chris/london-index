@@ -767,7 +767,7 @@ card, all 33 (32 plus the City), least recently featured first, never
 featured first of all, alphabetical on a tie (`spotlight_pick()`, reading
 the openers in `card_history.jsonl` via `spotlight_last_featured()`). Its
 count, most common category, change on the month and rank among the 33
-(most first), sampled within a mile of the town hall like the eight, so the
+("16th highest of 33", the value carrying the sense, his call after "most first" on the label did not read), sampled within a mile of the town hall like the eight, so the
 rank is like against like; under `SPOTLIGHT_MIN_RANKED` (20) answering, no
 rank line. The title has to name the borough, so `fact()` gained
 `fixed_opener`, which `select()` uses when every pick carries the same one,

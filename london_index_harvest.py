@@ -1036,8 +1036,10 @@ def spotlight_facts(name, records, prev_records, all_counts, ym, url):
             facts.append(mk(change, f'Change since {_readable_month(_shift_month(ym, 1))}'))
     if len(all_counts) >= SPOTLIGHT_MIN_RANKED and name in all_counts:
         rank = 1 + sum(1 for n in all_counts.values() if n > all_counts[name])
-        # "most first", or 16th reads either way.
-        facts.append(mk(_ordinal(rank), f'Rank among {len(all_counts)} boroughs, most first'))
+        # The value explains itself ("16th highest of 33"): a bare "16th" reads
+        # either way, and "most first" on the label did not read at all. His
+        # call, 12 September 2026.
+        facts.append(mk(f'{_ordinal(rank)} highest of {len(all_counts)}', 'Rank among boroughs'))
     return facts
 
 
