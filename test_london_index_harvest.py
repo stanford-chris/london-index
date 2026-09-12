@@ -526,7 +526,7 @@ class DatastoreSeries(unittest.TestCase):
             rows.append(['', str(i), '28', '01-Jan-25', f'{(i % 28) + 1:02d}-Jan-25', '100', '80', '5', '1', '10', '0.1', '15'])
         rows.append(['', '4', '28', '28-Jun-26', '25-Jul-26', '134.8', '97.3', '7.1', '1.7', '14.0', '0.1', '19.7'])
         facts = H.journey_facts(rows)
-        self.assertEqual(facts[0]['label'], 'Journeys on TfL, all modes')
+        self.assertEqual(facts[0]['label'], 'All modes')
         self.assertEqual(facts[0]['value'], '274.7 million')
         self.assertEqual(facts[0]['dateline_text'], 'Four weeks, 28 June to 25 July 2026')
         self.assertEqual(facts[1]['label'], 'Change on the same period a year earlier')

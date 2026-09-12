@@ -2552,7 +2552,7 @@ def journey_facts(rows, url=JOURNEYS_PAGE):
     mk = lambda v, label, pair=None: fact(v, label, f'{DATASTORE} (TfL journeys)', url, period=end,
                                           pair=pair, context_note=JOURNEYS_NOTE, dateline_text=text)
     total = sum(modes.values())
-    facts = [mk(f'{total:.1f} million', 'Journeys on TfL, all modes')]
+    facts = [mk(f'{total:.1f} million', 'All modes')]
     if len(periods) > PERIODS_PER_YEAR:
         prev_total = sum(periods[-1 - PERIODS_PER_YEAR][2].values())
         change = _pct_change(total, prev_total)
