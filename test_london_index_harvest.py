@@ -593,6 +593,53 @@ class DatastoreSeries(unittest.TestCase):
             f['id'] = f'x:{i}'; f['vein'] = 'x'
         c = C.compose({'opener': {'emoji': '', 'text': 'T'}, 'ids': ['x:0', 'x:1']}, facts)
         self.assertEqual(c['dateline'], 'Four weeks, 28 June to 25 July 2026')
+        # The footnote says the period is the newest published, TfL's
+        # four-week span turned round into a sentence (12 September 2026).
+        self.assertEqual(c['footnote'],
+                         'the four weeks to 25 July 2026 is the latest period for which data is available')
+
+
+class LatestNote(unittest.TestCase):
+    """Every dated card's footnote ends by naming its period as the newest
+    published, his call, 12 September 2026; a live card says nothing."""
+
+    def compose(self, facts):
+        import london_index_compose as C
+        for i, f in enumerate(facts):
+            f['id'] = f'x:{i}'
+            f['vein'] = 'x'
+        return C.compose({'opener': {'emoji': '', 'text': 'T'}, 'ids': [f['id'] for f in facts]}, facts)
+
+    def test_a_month_a_year_and_a_day_each_name_their_own_unit(self):
+        month = [H.fact('1', 'a', 's', 'u', period='2026-07'), H.fact('2', 'b', 's', 'u', period='2026-07')]
+        self.assertEqual(self.compose(month)['footnote'],
+                         'July 2026 is the latest month for which data is available')
+        year = [H.fact('1', 'a', 's', 'u', period='2025'), H.fact('2', 'b', 's', 'u', period='2025')]
+        self.assertEqual(self.compose(year)['footnote'],
+                         '2025 is the latest year for which data is available')
+        day = [H.fact('1', 'a', 's', 'u', period='2026-09-03'), H.fact('2', 'b', 's', 'u', period='2026-09-03')]
+        self.assertEqual(self.compose(day)['footnote'],
+                         '3 September 2026 is the latest date for which data is available')
+
+    def test_it_follows_the_context_note_after_a_middle_dot(self):
+        # Footnotes here carry no full stop (MUSEUM_NOTE_GROUP), so the two
+        # parts meet on a middle dot, Seoul Index's busmovers arrangement.
+        facts = [H.fact('1', 'a', 's', 'u', period='2026-07', context_note='Counted by the Met'),
+                 H.fact('2', 'b', 's', 'u', period='2026-07', context_note='Counted by the Met')]
+        self.assertEqual(self.compose(facts)['footnote'],
+                         'Counted by the Met · July 2026 is the latest month for which data is available')
+
+    def test_a_live_card_and_a_mixed_card_say_nothing(self):
+        live = [H.fact('1', 'a', 's', 'u'), H.fact('2', 'b', 's', 'u')]
+        self.assertEqual(self.compose(live)['footnote'], '')
+        mixed = [H.fact('1', 'a', 's', 'u', period='2026-06'), H.fact('2', 'b', 's', 'u', period='2026-07')]
+        self.assertEqual(self.compose(mixed)['footnote'], '')
+
+    def test_a_spelled_out_period_is_restated_as_it_stands(self):
+        facts = [H.fact('1', 'a', 's', 'u', period='2026-07', dateline_text='May to July 2026'),
+                 H.fact('2', 'b', 's', 'u', period='2026-07', dateline_text='May to July 2026')]
+        self.assertEqual(self.compose(facts)['footnote'],
+                         'May to July 2026 is the latest period for which data is available')
 
 
 class ZoneMap(unittest.TestCase):

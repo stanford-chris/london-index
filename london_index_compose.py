@@ -148,6 +148,46 @@ def _dateline(picks):
     return ''
 
 
+def _latest_note(picks, dateline_text):
+    """One sentence for the footnote saying the period on the second line
+    is the newest the publisher has: "June 2026 is the latest month for
+    which data is available." Chris's call, 12 September 2026, made first
+    for Seoul Index's bus cards and then every dated card on both accounts,
+    since a card cites a day, month or year some way behind the calendar
+    and nothing on it said why. Stated as a rule rather than a lag count,
+    so it stays true on the morning a harvest stalls. Every dated vein
+    reads its source's newest published period (see README's table), which
+    is what makes the sentence true by construction. Empty for a live card
+    (the clock on the second line is now) and for a mixed-period card,
+    which has no single period to name.
+
+    A spelled-out period (dateline_text) is restated as it stands, except
+    TfL's "Four weeks, 28 June to 25 July 2026", which reads as a sentence
+    only turned round: "the four weeks to 25 July 2026 is the latest period
+    for which data is available". No full stop, since footnotes on this
+    account carry none (see MUSEUM_NOTE_GROUP); compose() joins it to the
+    context note with a middle dot.
+    """
+    if _is_live(picks):
+        return ''
+    periods = {f.get('period') for f in picks}
+    p = next(iter(periods)) if len(periods) == 1 else None
+    if dateline_text:
+        if dateline_text.startswith('Four weeks, ') and p and _is_single_day(picks):
+            subject = f'the four weeks to {_readable_period(p)}'
+        else:
+            subject = dateline_text
+        return f'{subject} is the latest period for which data is available'
+    if not p:
+        return ''
+    if _is_single_day(picks):
+        return f'{_readable_period(p)} is the latest date for which data is available'
+    if _is_period_aggregate(picks):
+        unit = 'month' if len(p) == 7 else 'year' if len(p) == 4 else 'period'
+        return f'{_readable_period(p)} is the latest {unit} for which data is available'
+    return ''
+
+
 def compose(sel, pool):
     by_id = {f['id']: f for f in pool}
     picks = [by_id[i] for i in sel['ids'] if i in by_id][:MAX_LINES]
@@ -194,11 +234,19 @@ def compose(sel, pool):
     # keeps the derived (mixed, so empty) dateline. Added 12 September 2026
     # for TfL's four-week periods and the ONS rolling quarter.
     texts = {f.get('dateline_text') for f in picks}
-    if len(texts) == 1 and next(iter(texts)):
-        dateline = next(iter(texts))
+    dateline_text = next(iter(texts)) if len(texts) == 1 else None
+    if dateline_text:
+        dateline = dateline_text
     lead = next((f['dateline_lead'] for f in picks if f.get('dateline_lead')), None)
     if lead:
         dateline = f'{lead}, {dateline}' if dateline else lead
+    # The footnote ends by saying that period is the newest published
+    # (see _latest_note); it follows the context note after a middle dot,
+    # past the cap, since a sentence cut mid-word is worse than a long
+    # footnote.
+    latest = _latest_note(picks, dateline_text)
+    if latest:
+        footnote = f'{footnote} · {latest}' if footnote else latest
 
     return {
         'opener': sel['opener'],
