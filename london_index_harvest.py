@@ -2784,7 +2784,8 @@ def harvest_unemployment():
 LIFTS_URL = ('https://data.london.gov.uk/download/2g980/46561645-a73e-473e-a45c-868b8599a280/'
              'Shut%20in%20lifts%20incidents%20attended%20by%20LFB%20in%20last%2036%20months.xlsx')
 LIFTS_PAGE = 'https://data.london.gov.uk/dataset/shut-in-lift-releases-lift-entrapments-attended-by-lfb'
-LIFTS_NOTE = 'London Fire Brigade “shut in lift” releases; the file holds the last 36 months'
+LIFTS_NOTE = 'What the London Fire Brigade calls “shut in lift” releases'
+LIFTS_LEAD = 'Freed by the London Fire Brigade'
 
 
 def lifts_facts(rows, ym, url=LIFTS_PAGE, prev_rows=None):
@@ -2798,7 +2799,7 @@ def lifts_facts(rows, ym, url=LIFTS_PAGE, prev_rows=None):
     y, m = (int(x) for x in ym.split('-'))
     days = (datetime(y + (m == 12), m % 12 + 1, 1) - datetime(y, m, 1)).days
     mk = lambda v, label: fact(v, label, f'{DATASTORE} (LFB lift releases)', url, period=ym,
-                               pair='lifts_all', context_note=LIFTS_NOTE)
+                               pair='lifts_all', context_note=LIFTS_NOTE, dateline_lead=LIFTS_LEAD)
     facts = [mk(f'{len(rows):,}', 'Callouts'), mk(f'{len(rows) / days:.1f}', 'Per day')]
     if boroughs:
         name, n = max(boroughs.items(), key=lambda kv: kv[1])

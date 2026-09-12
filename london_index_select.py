@@ -327,7 +327,7 @@ FIXED_OPENERS = {
     ('police_strength', 'strength_all'): {'emoji': '🚓', 'text': 'Metropolitan Police staffing'},
     ('arrests', 'arrests_all'): {'emoji': '🚓', 'text': 'Arrests by the Metropolitan Police'},
     ('unemployment', 'jobless_all'): {'emoji': '', 'text': 'Unemployment'},
-    ('lift_releases', 'lifts_all'): {'emoji': '🚒', 'text': 'People stuck in lifts, freed by the fire brigade'},
+    ('lift_releases', 'lifts_all'): {'emoji': '🚒', 'text': 'People stuck in lifts'},
 }
 
 
