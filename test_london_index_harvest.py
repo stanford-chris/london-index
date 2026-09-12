@@ -290,6 +290,54 @@ class RailFacts(unittest.TestCase):
         self.assertIn('termini answered', err)
 
 
+class Spotlight(unittest.TestCase):
+    def test_thirty_three_boroughs_all_inside_greater_london(self):
+        self.assertEqual(len(H.ALL_BOROUGHS), 33)
+        for name, (lat, lon) in H.ALL_BOROUGHS.items():
+            self.assertTrue(51.28 < lat < 51.70 and -0.52 < lon < 0.34, name)
+        self.assertTrue(set(H.POLICE_BOROUGHS) <= set(H.ALL_BOROUGHS))
+
+    def test_ordinals(self):
+        self.assertEqual([H._ordinal(n) for n in (1, 2, 3, 4, 11, 12, 13, 21, 22, 33)],
+                         ['1st', '2nd', '3rd', '4th', '11th', '12th', '13th', '21st', '22nd', '33rd'])
+
+    def test_pick_never_featured_first_then_longest_ago_then_alphabetical(self):
+        last = {'Camden': '2026-09-10 12:00:00', 'Brent': '2026-09-01 12:00:00'}
+        self.assertEqual(H.spotlight_pick(['Camden', 'Brent', 'Sutton', 'Bexley'], last), 'Bexley')
+        self.assertEqual(H.spotlight_pick(['Camden', 'Brent'], last), 'Brent')
+
+    def test_last_featured_reads_spotlight_openers_only(self):
+        import json, tempfile
+        fh = tempfile.NamedTemporaryFile('w', suffix='.jsonl', delete=False)
+        for at, opener in (('2026-09-01 08:00:00', 'Reported crime in Sutton'),
+                           ('2026-09-03 08:00:00', 'Reported crime in Sutton'),
+                           ('2026-09-02 08:00:00', 'Reported crime'),
+                           ('2026-09-02 09:00:00', 'Reported crime in Narnia')):
+            fh.write(json.dumps({'at': at, 'opener': opener, 'lines': []}) + '\n')
+        fh.close()
+        self.addCleanup(Path(fh.name).unlink)
+        self.assertEqual(H.spotlight_last_featured(fh.name), {'Sutton': '2026-09-03 08:00:00'})
+
+    def test_facts(self):
+        recs = [{'category': 'violent-crime'}] * 359 + [{'category': 'vehicle-crime'}] * 123
+        prev = [{'category': 'violent-crime'}] * 400
+        counts = {f'B{i}': 100 * i for i in range(1, 33)}
+        counts['Newham'] = 482
+        facts = H.spotlight_facts('Newham', recs, prev, counts, '2026-07', 'u')
+        self.assertEqual([(f['label'], f['value']) for f in facts],
+                         [('Reported crimes', '482'), ('Most common: Violent crime', '359'),
+                          ('Change since June', '+20%'), ('Rank among 33 boroughs', '29th')])
+        for f in facts:
+            self.assertEqual(f['fixed_opener'], {'emoji': '🚓', 'text': 'Reported crime in Newham'})
+            self.assertEqual(f['dateline_lead'], H.SPOTLIGHT_LEAD)
+            self.assertEqual(f['pair'], 'spot_all')
+
+    def test_no_rank_when_too_few_boroughs_answered(self):
+        recs = [{'category': 'burglary'}] * 5
+        facts = H.spotlight_facts('Bexley', recs, None, {'Bexley': 5, 'Brent': 9}, '2026-07', 'u')
+        self.assertEqual([f['label'] for f in facts], ['Reported crimes', 'Most common: Burglary'])
+
+
 class DatelineLead(unittest.TestCase):
     """compose() puts a fact's dateline_lead ahead of the date on the second
     line; a fact without one renders as before."""

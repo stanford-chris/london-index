@@ -757,3 +757,29 @@ stations" (his), and "Departing within the hour", never "due", which he
 read as arrivals. `rail_top` is built only from stations with a train
 departing, and only when four qualify: a 1:43 a.m. render had listed
 King’s Cross and Euston at 0. Tests: harvest 32, select 36.
+
+### The spotlight borough (12 September 2026)
+Asked whether the same eight boroughs feature every time (yes, since
+29 August), and offered a 33-borough ranking, Chris: "I worry that's going
+to be very static." He was right: whatever the set, the same names top a
+crime ranking month after month. So `police_spotlight`: one borough per
+card, all 33 (32 plus the City), least recently featured first, never
+featured first of all, alphabetical on a tie (`spotlight_pick()`, reading
+the openers in `card_history.jsonl` via `spotlight_last_featured()`). Its
+count, most common category, change on the month and rank among the 33
+(most first), sampled within a mile of the town hall like the eight, so the
+rank is like against like; under `SPOTLIGHT_MIN_RANKED` (20) answering, no
+rank line. The title has to name the borough, so `fact()` gained
+`fixed_opener`, which `select()` uses when every pick carries the same one,
+over the FIXED_OPENERS table and the model alike.
+⚠️ **The 25 new coordinates were geocoded via Nominatim, one civic building
+each, and every returned display_name read before it was kept**: Havering
+and Sutton needed a second query, and Richmond's first hit was York House
+rather than the Civic Centre at 44 York Street, 150 m apart (the Civic
+Centre was kept). `test_thirty_three_boroughs_all_inside_greater_london`
+pins the count and the bounding box. `_police_month()` is memoised per
+process, since this vein reads all 33 and `police_boroughs` eight of the
+same. Measured: the 33-borough harvest takes about two minutes. First live
+pick: Barking and Dagenham, 921 crimes, violent crime 298, −1 percent on
+June, 16th of 33. The eight-borough ranked shapes stay as they were, on
+the eight. Tests: harvest 38, select 38.

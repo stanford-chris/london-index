@@ -679,6 +679,14 @@ def select(pool, state, history_path=CARD_HISTORY):
                 fixed = FIXED_OPENERS.get((sel['vein'], next(iter(pairs))))
                 if fixed:
                     sel['opener'] = fixed
+            # A title Python set on the facts themselves (the spotlight
+            # borough's name) wins over the table and the model alike, when
+            # every pick carries the same one. Added 12 September 2026.
+            carried = {json.dumps(f.get('fixed_opener'), sort_keys=True) for f in picks}
+            if len(carried) == 1:
+                fo = picks[0].get('fixed_opener')
+                if fo:
+                    sel['opener'] = fo
             return sel
         if last:
             raise RuntimeError(f'claude -p picked too few valid ids: {sel.get("ids")}')

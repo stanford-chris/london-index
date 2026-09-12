@@ -23,6 +23,11 @@ dcms_museums added 30 August):
                   the API lags roughly two months behind the calendar.
   police_boroughs - the same data.police.uk feed, sampled at 8 curated
                   borough town halls instead of one central point.
+  police_spotlight - the same feed at all 33 town halls, one borough per
+                  card, least recently featured first: its count, most
+                  common category, change on the month and rank among the
+                  33. Added 12 September 2026 because a ranking of any set
+                  of boroughs is static; a place is not.
   cycle_hires   - London Datastore's own "Number of Bicycle Hires" dataset
                   (a daily-hire count TfL supplies to the Datastore, distinct
                   from the live BikePoint feed above): a periodic XLSX drop,
@@ -426,7 +431,7 @@ def tfl_get_json(url, timeout=25):
 
 
 def fact(value, label, source, url, period=None, pair=None, context_note=None,
-         dateline_lead=None):
+         dateline_lead=None, fixed_opener=None):
     """`pair` tags a fact as part of a pre-detected juxtaposition — a group
     of facts sharing one pair id are offered to the selector as a single
     unit worth building a card around, the same mechanism Seoul Index's
@@ -454,10 +459,15 @@ def fact(value, label, source, url, period=None, pair=None, context_note=None,
     own convention for its ranked cards and Chris's call for this account on
     12 September 2026 ("move some of the footnote description into the
     second line"). The footnote then keeps only what is left: the source or
-    the sample. compose() takes the first pick's lead."""
+    the sample. compose() takes the first pick's lead.
+
+    `fixed_opener` ({'emoji', 'text'}) is a title Python sets because it has
+    to name something only Python knows, such as the spotlight borough;
+    select() uses it when every pick carries the same one, ahead of the
+    FIXED_OPENERS table and the model's own wording."""
     return {'value': value, 'label': label, 'source': source, 'url': url,
             'period': period, 'pair': pair, 'context_note': context_note,
-            'dateline_lead': dateline_lead}
+            'dateline_lead': dateline_lead, 'fixed_opener': fixed_opener}
 
 
 def pct_of_baseline(fraction):
@@ -675,10 +685,19 @@ def _readable_month(ym):
     return datetime.strptime(ym, '%Y-%m').strftime('%B')
 
 
+_POLICE_MEMO = {}
+
+
 def _police_month(lat, lng, ym):
-    url = f'https://data.police.uk/api/crimes-street/all-crime?lat={lat}&lng={lng}&date={ym}'
-    d = get_json(url)
-    return d if isinstance(d, list) else None
+    """Memoised per process: police_boroughs and police_spotlight both read
+    the same boroughs' months in one run, and the spotlight's rank needs all
+    33, so without this a run would fetch the eight twice over."""
+    key = (lat, lng, ym)
+    if key not in _POLICE_MEMO:
+        url = f'https://data.police.uk/api/crimes-street/all-crime?lat={lat}&lng={lng}&date={ym}'
+        d = get_json(url)
+        _POLICE_MEMO[key] = d if isinstance(d, list) else None
+    return _POLICE_MEMO[key]
 
 
 def _latest_police_month(lat, lng):
@@ -912,6 +931,135 @@ def harvest_police_boroughs():
     facts = borough_facts(counts, prev_counts, cats, ym_used, url)
     if failed:
         facts[0]['note'] = f'{len(failed)} of {len(POLICE_BOROUGHS)} curated boroughs unusable: {failed}'
+    return facts, None
+
+
+
+# --- Spotlight borough: one of 33, a different one each card ---------------
+# Chris's worry on 12 September 2026, offered a 33-borough ranking: "I worry
+# that's going to be very static." He was right: whatever the set, the same
+# names top a crime ranking month after month. This card is about a PLACE,
+# not a league table, and walks through all 33 (32 boroughs plus the City),
+# least recently featured first, so no name repeats until every borough has
+# had a card. The eight in POLICE_BOROUGHS keep the ranked shapes; these 25
+# were geocoded via Nominatim on 12 September 2026, one civic building each,
+# and every returned display_name was read before the coordinate was kept
+# (Havering and Sutton needed a second query; Richmond's is the Civic Centre
+# at 44 York Street, not the first hit, York House, 150 m away). Same
+# one-mile sample as POLICE_BOROUGHS, so the rank is like against like.
+ALL_BOROUGHS = dict(POLICE_BOROUGHS)
+ALL_BOROUGHS.update({
+    'Barking and Dagenham': (51.5357947, 0.0783323),
+    'Barnet': (51.5875152, -0.2295466),
+    'Bexley': (51.4556675, 0.1535181),
+    'City of London': (51.5159067, -0.0920239),
+    'Enfield': (51.6544039, -0.0806629),
+    'Greenwich': (51.4898943, 0.0646427),
+    'Hammersmith and Fulham': (51.4917715, -0.2338351),
+    'Haringey': (51.5993866, -0.1123576),
+    'Harrow': (51.5896111, -0.3328771),
+    'Havering': (51.5813489, 0.1839732),
+    'Hillingdon': (51.5436846, -0.4768893),
+    'Hounslow': (51.4686286, -0.3674574),
+    'Islington': (51.5422362, -0.1029387),
+    'Kensington and Chelsea': (51.5021491, -0.1950748),
+    'Kingston upon Thames': (51.4083581, -0.3059372),
+    'Lambeth': (51.4606347, -0.1170681),
+    'Lewisham': (51.4451556, -0.0207568),
+    'Merton': (51.4013156, -0.1961441),
+    'Redbridge': (51.5588663, 0.0741985),
+    'Richmond upon Thames': (51.4478600, -0.3257800),
+    'Southwark': (51.5032011, -0.0806807),
+    'Sutton': (51.3616413, -0.1949320),
+    'Tower Hamlets': (51.5185663, -0.0601574),
+    'Waltham Forest': (51.5908779, -0.0135681),
+    'Wandsworth': (51.4566514, -0.1909077),
+})
+SPOTLIGHT_OPENER_PREFIX = 'Reported crime in '
+SPOTLIGHT_LEAD = 'Within a mile of the town hall'
+SPOTLIGHT_NOTE = ('One of 33 boroughs, a different one each card; ranked against the same '
+                  'one-mile sample at every town hall')
+SPOTLIGHT_MIN_RANKED = 20
+CARD_HISTORY_PATH = Path(__file__).parent / 'card_history.jsonl'
+
+
+def _ordinal(n):
+    if 10 <= n % 100 <= 20:
+        suffix = 'th'
+    else:
+        suffix = {1: 'st', 2: 'nd', 3: 'rd'}.get(n % 10, 'th')
+    return f'{n}{suffix}'
+
+
+def spotlight_last_featured(history_path=CARD_HISTORY_PATH):
+    """Borough name -> the `at` string of its most recent spotlight card,
+    read from the openers in the card log. Unreadable lines are skipped."""
+    seen = {}
+    if not Path(history_path).exists():
+        return seen
+    for line in Path(history_path).read_text(encoding='utf-8').splitlines():
+        try:
+            rec = json.loads(line)
+        except ValueError:
+            continue
+        opener = rec.get('opener') or ''
+        if opener.startswith(SPOTLIGHT_OPENER_PREFIX):
+            name = opener[len(SPOTLIGHT_OPENER_PREFIX):]
+            if name in ALL_BOROUGHS and rec.get('at', '') > seen.get(name, ''):
+                seen[name] = rec['at']
+    return seen
+
+
+def spotlight_pick(candidates, last_featured):
+    """The candidate never featured, else the one featured longest ago;
+    alphabetical on a tie so the walk is deterministic."""
+    return sorted(candidates, key=lambda n: (n in last_featured, last_featured.get(n, ''), n))[0]
+
+
+def spotlight_facts(name, records, prev_records, all_counts, ym, url):
+    """One borough's card. `all_counts` is borough -> count for every
+    borough that answered this month, for the rank; under
+    SPOTLIGHT_MIN_RANKED answering, no rank line."""
+    opener = {'emoji': '🚓', 'text': SPOTLIGHT_OPENER_PREFIX + name}
+    mk = lambda v, label: fact(v, label, 'data.police.uk', url, period=ym, pair='spot_all',
+                               context_note=SPOTLIGHT_NOTE, dateline_lead=SPOTLIGHT_LEAD,
+                               fixed_opener=opener)
+    cats = {}
+    for r in records:
+        cats[r['category']] = cats.get(r['category'], 0) + 1
+    top = max(cats.items(), key=lambda kv: kv[1])
+    facts = [mk(f'{len(records):,}', 'Reported crimes'),
+             mk(f'{top[1]:,}', f'Most common: {_category_name(top[0])}')]
+    if prev_records:
+        change = _pct_change(len(records), len(prev_records))
+        if change is not None:
+            facts.append(mk(change, f'Change since {_readable_month(_shift_month(ym, 1))}'))
+    if len(all_counts) >= SPOTLIGHT_MIN_RANKED and name in all_counts:
+        rank = 1 + sum(1 for n in all_counts.values() if n > all_counts[name])
+        facts.append(mk(_ordinal(rank), f'Rank among {len(all_counts)} boroughs'))
+    return facts
+
+
+def harvest_police_spotlight():
+    ym, _ = _latest_police_month(51.5074, -0.1278)
+    if ym is None:
+        return [], 'no populated month found in the last 4 tried'
+    counts = {}
+    for name, (lat, lng) in ALL_BOROUGHS.items():
+        d = _police_month(lat, lng, ym)
+        if d:
+            counts[name] = len(d)
+    if not counts:
+        return [], f'no borough answered for {ym}'
+    name = spotlight_pick(list(counts), spotlight_last_featured())
+    lat, lng = ALL_BOROUGHS[name]
+    records = _police_month(lat, lng, ym)
+    prev = _police_month(lat, lng, _shift_month(ym, 1))
+    url = f'https://data.police.uk/api/crimes-street/all-crime?lat={lat}&lng={lng}&date={ym}'
+    facts = spotlight_facts(name, records, prev, counts, ym, url)
+    missing = sorted(set(ALL_BOROUGHS) - set(counts))
+    if missing:
+        facts[0]['note'] = f'{len(missing)} of {len(ALL_BOROUGHS)} boroughs did not answer for {ym}: {missing}'
     return facts, None
 
 
@@ -2034,6 +2182,7 @@ HARVESTERS = {
     'river_levels': harvest_river_levels,
     'police': harvest_police,
     'police_boroughs': harvest_police_boroughs,
+    'police_spotlight': harvest_police_spotlight,
     'cycle_hires': harvest_cycle_hires,
     'laqn': harvest_laqn,
     'dcms_museums': harvest_dcms_museums,

@@ -414,5 +414,33 @@ class GeneralCooldown(unittest.TestCase):
 
 
 
+class CarriedFixedOpener(unittest.TestCase):
+    def test_a_fixed_opener_on_the_facts_overrides_the_model(self):
+        fo = {'emoji': '🚓', 'text': 'Reported crime in Sutton'}
+        pool = [{'id': f'police_spotlight:{i}', 'vein': 'police_spotlight', 'label': f'l{i}',
+                 'value': str(i), 'pair': 'spot_all', 'fixed_opener': fo} for i in range(3)]
+
+        def fake_run(cmd, **kwargs):
+            return SelectWiring._fake_claude(None, ['police_spotlight:0', 'police_spotlight:1'],
+                                             opener_text='Crime somewhere')
+
+        with patch('subprocess.run', side_effect=fake_run):
+            sel = S.select(pool, {}, history_path='/nonexistent')
+        self.assertEqual(sel['opener'], fo)
+
+    def test_mixed_fixed_openers_leave_the_model_wording(self):
+        pool = [{'id': 'v:0', 'vein': 'v', 'label': 'a', 'value': '1', 'pair': None,
+                 'fixed_opener': {'emoji': '', 'text': 'A'}},
+                {'id': 'v:1', 'vein': 'v', 'label': 'b', 'value': '2', 'pair': None,
+                 'fixed_opener': {'emoji': '', 'text': 'B'}}]
+
+        def fake_run(cmd, **kwargs):
+            return SelectWiring._fake_claude(None, ['v:0', 'v:1'], opener_text='Model said')
+
+        with patch('subprocess.run', side_effect=fake_run):
+            sel = S.select(pool, {}, history_path='/nonexistent')
+        self.assertEqual(sel['opener']['text'], 'Model said')
+
+
 if __name__ == '__main__':
     unittest.main()
