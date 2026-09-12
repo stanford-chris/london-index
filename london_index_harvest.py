@@ -1957,8 +1957,14 @@ def rail_facts(boards, url=RAIL_PAGE):
              mk(counts['on time'], 'On time', 'rail_all'),
              mk(counts['late'], 'Running late', 'rail_all'),
              mk(counts['cancelled'], 'Cancelled', 'rail_all')]
-    for name, n in sorted(per.items(), key=lambda kv: -kv[1])[:RAIL_TOP_N]:
-        facts.append(mk(n, name, 'rail_top'))
+    # A ranked "busiest" list never carries a station with nothing due: at
+    # 1:43 a.m. on 12 September 2026 a render bypassing the floor showed
+    # King's Cross and Euston at 0 in third and fourth place. The group is
+    # made only when RAIL_TOP_N stations have at least one train due.
+    busy = [(name, n) for name, n in sorted(per.items(), key=lambda kv: -kv[1]) if n > 0]
+    if len(busy) >= RAIL_TOP_N:
+        for name, n in busy[:RAIL_TOP_N]:
+            facts.append(mk(n, name, 'rail_top'))
     return facts
 
 

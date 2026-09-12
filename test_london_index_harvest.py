@@ -235,14 +235,26 @@ class RailFacts(unittest.TestCase):
     def test_shapes(self):
         boards = {'Waterloo': [self.svc('09:00', 'On time')] * 5 + [self.svc('09:10', '09:15')],
                   'Euston': [self.svc('09:00', 'Cancelled')] + [self.svc('09:20', 'On time')] * 2,
-                  'Moorgate': [self.svc('09:05', 'No report')]}
+                  'Moorgate': [self.svc('09:05', 'No report')],
+                  'Victoria': [self.svc('09:30', 'On time')]}
         facts = H.rail_facts(boards)
         self.assertEqual([(f['label'], f['value'], f['pair']) for f in facts],
-                         [('Trains due within the hour', '10', 'rail_all'), ('On time', '7', 'rail_all'),
+                         [('Trains due within the hour', '11', 'rail_all'), ('On time', '8', 'rail_all'),
                           ('Running late', '1', 'rail_all'), ('Cancelled', '1', 'rail_all'),
                           ('Waterloo', '6', 'rail_top'), ('Euston', '3', 'rail_top'),
-                          ('Moorgate', '1', 'rail_top')])
+                          ('Moorgate', '1', 'rail_top'), ('Victoria', '1', 'rail_top')])
         self.assertTrue(all(f['period'] is None and f['context_note'] == H.RAIL_NOTE for f in facts))
+
+    def test_ranked_list_never_carries_a_zero_and_needs_four_busy_stations(self):
+        boards = {'St Pancras': [self.svc('01:44', 'On time')] * 2, 'Paddington': [self.svc('01:45', 'On time')],
+                  'King’s Cross': [], 'Euston': [], 'Waterloo': []}
+        facts = H.rail_facts(boards)
+        self.assertEqual([f['pair'] for f in facts], ['rail_all'] * 4)
+        boards['King’s Cross'] = [self.svc('09:00', 'On time')]
+        boards['Euston'] = [self.svc('09:00', 'On time')]
+        top = [(f['label'], f['value']) for f in H.rail_facts(boards) if f['pair'] == 'rail_top']
+        self.assertEqual(len(top), 4)
+        self.assertNotIn('0', [v for _, v in top])
 
     def test_no_key_is_a_named_refusal_not_a_crash(self):
         with unittest.mock.patch.object(H, '_rdm_key', return_value=None):
