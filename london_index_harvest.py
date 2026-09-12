@@ -1692,8 +1692,10 @@ def dcms_table(sheet):
     return _DCMS_MEMO[sheet]
 
 
-MUSEUM_LEAD = 'One of the 13 DCMS-sponsored museums in London'
-MUSEUM_NOTE = 'DCMS’s annual performance indicators; a group is counted across all its sites'
+# Spelled out, his call 12 September 2026 ("what is dcms"): the same objection
+# as MOPAC, an acronym a reader may not know.
+MUSEUM_LEAD = 'Sponsored by the Department for Culture, Media and Sport'
+MUSEUM_NOTE = 'One of the 13 London museums the department funds; a group is counted across all its sites'
 DCMS_PAGE = ('https://www.gov.uk/government/statistics/'
              'dcms-sponsored-museums-and-galleries-annual-performance-indicators-202425')
 
