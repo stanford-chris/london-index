@@ -978,3 +978,10 @@ card: British Museum has 2024-25 visitors but no 2024-25 recommendation
 figure, so that line is simply absent rather than borrowed from 2023-24.
 The real file is in `scratch/` and a test parses it. 28 veins. Tests:
 harvest 76.
+
+### Pinned thread, museum card extended (12 September 2026)
+The museum card now says what a museum's own spotlight card carries (one
+year, its latest published: visitors, overseas and under-16 visitors,
+website visits, recommendation share, admissions income; a group counted
+across its sites) and drops the acronym, per his "what is dcms". Reposted
+with `--replace`; six posts, eleven source facets.

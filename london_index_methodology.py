@@ -93,10 +93,14 @@ STATIONS = ("Station figures come in two grains: a whole year's total (TfL's own
 # "13 ... out of 18" is LONDON_DCMS_MUSEUMS against the full row count in
 # london_index_harvest.py's Table 1 parse — update both together if DCMS adds
 # or drops a sponsored institution.
-MUSEUMS = ("Museum visitor totals are the Department for Culture, Media and "
-           "Sport's (DCMS) own annual figures for the 13 London-based museums it "
-           "sponsors, out of 18 nationally: not every museum in London, and not "
-           "live. DCMS publishes them once a year.")
+# Extended 12 September 2026 for the museum spotlight: one museum per card,
+# the other indicators in the same release, one year per card.
+MUSEUMS = ("Museum figures are the Department for Culture, Media and Sport's own "
+           "annual indicators for the 13 London museums it sponsors, out of 18 "
+           "nationally: not every museum in London, and not live. A museum's own "
+           "card takes one year, its latest published, for visitors, overseas and "
+           "under-16 visitors, website visits, the share who would recommend a "
+           "visit and admissions income; a group is counted across all its sites.")
 
 # Added 12 September 2026, the day the borough figures became whole-borough
 # counts: until then they were a one-mile sample around each town hall and
