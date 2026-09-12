@@ -96,10 +96,22 @@ MUSEUMS = ("Museum visitor totals are the Department for Culture, Media and "
            "sponsors, out of 18 nationally: not every museum in London, and not "
            "live. DCMS publishes them once a year.")
 
+# Added 12 September 2026, the day the borough figures became whole-borough
+# counts: until then they were a one-mile sample around each town hall and
+# no card, pinned or daily, said so. The polygon is the ONS borough outline,
+# the same one the map reply draws; data.police.uk publishes street-level
+# reports about two months behind, with its own categories.
+CRIME = ("Crime figures are the reports data.police.uk publishes for the streets "
+         "inside each borough's boundary, counted whole, in the police's own "
+         "categories, about two months after the month they cover. Central "
+         "London means within a mile of Trafalgar Square. A borough card's map "
+         "fills the borough counted.")
+
 CARDS = [
     {'heading': 'About this account', 'emoji': '\U0001f1ec\U0001f1e7', 'body': [INTRO]},
     {'heading': 'About the figures', 'emoji': '\U0001f9ee', 'body': [COUNTS]},
     {'heading': 'About the station figures', 'emoji': '\U0001f687', 'body': [STATIONS]},
+    {'heading': 'About the crime figures', 'emoji': '\U0001f693', 'body': [CRIME]},
     {'heading': 'About the museum figures', 'emoji': '\U0001f5bc️', 'body': [MUSEUMS]},
 ]
 
