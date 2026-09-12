@@ -2758,7 +2758,7 @@ def unemployment_facts(rows, url=UNEMPLOYMENT_PAGE):
     mk = lambda v, label: fact(v, label, f'{DATASTORE} (ONS unemployment)', url, period=period,
                                pair='jobless_all', context_note=UNEMPLOYMENT_NOTE, dateline_text=text)
     # Bare labels: the opener already says "Unemployment".
-    facts = [mk(f'{ldn_rate:.1f}%', 'London rate'), mk(f'{uk_rate:.1f}%', 'UK rate'),
+    facts = [mk(f'{ldn_rate:.1f}%', 'London rate'), mk(f'{uk_rate:.1f}%', 'U.K. rate'),
              mk(f'{round(ldn_n, -3):,.0f}', 'Londoners unemployed')]
     if len(data) >= 13:   # rolling quarters step by a month, so a year is 12 rows back
         facts.append(mk(_rate_change(ldn_rate, data[-13][2]), 'London rate, on a year earlier'))
