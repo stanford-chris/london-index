@@ -3306,12 +3306,22 @@ def _tm_listings(key, start, end):
     return listings, complete
 
 
+PERFORMING_SEGMENTS = {'Arts & Theatre', 'Music'}
+
+
 def events_listing_facts(listings, url=TM_PAGE):
-    """From the week's listings: the venues with the most performances
-    (venues_top, ranked, top four) and the busiest day (into events_all)."""
+    """From the week's PERFORMANCES (Arts & Theatre and Music listings): the
+    venues with the most (venues_top, ranked, top four) and the busiest day
+    (into events_all). Timed-entry attractions are left out here: on the
+    first live render the venue ranking was Twist Museum 243, The View from
+    The Shard 160, Marble Arch Place 104, every one an attraction selling
+    entry slots, which is not what "most on sale, by venue" promises."""
     venues = {}
     days = {}
     for e in listings:
+        seg = (e.get('classifications') or [{}])[0].get('segment', {}).get('name')
+        if seg not in PERFORMING_SEGMENTS:
+            continue
         v = (e.get('_embedded', {}).get('venues') or [{}])[0].get('name')
         if v:
             venues[v] = venues.get(v, 0) + 1
@@ -3322,7 +3332,7 @@ def events_listing_facts(listings, url=TM_PAGE):
     if days:
         day, n = max(days.items(), key=lambda kv: (kv[1], kv[0]))
         d = datetime.strptime(day, '%Y-%m-%d')
-        facts.append(fact(f'{n:,}', f'Busiest day: {d.strftime("%A")} {d.day} {d.strftime("%B")}',
+        facts.append(fact(f'{n:,}', f'Most performances: {d.strftime("%A")} {d.day} {d.strftime("%B")}',
                           TM_SOURCE, url, pair='events_all', context_note=TM_NOTE, dateline_lead=TM_LEAD))
     ranked = sorted(venues.items(), key=lambda kv: (-kv[1], kv[0]))[:4]
     if len(ranked) == 4:

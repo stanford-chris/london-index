@@ -731,15 +731,17 @@ class Events(unittest.TestCase):
 
 
 class EventsListingsAndMuseums(unittest.TestCase):
-    def ev(self, venue, day, test=False):
-        return {'_embedded': {'venues': [{'name': venue}]}, 'dates': {'start': {'localDate': day}}, 'test': test}
+    def ev(self, venue, day, test=False, seg='Music'):
+        return {'_embedded': {'venues': [{'name': venue}]}, 'dates': {'start': {'localDate': day}}, 'test': test,
+                'classifications': [{'segment': {'name': seg}}]}
 
     def test_listing_facts_busiest_day_and_venues(self):
         L = [self.ev('A', '2026-09-18')] * 5 + [self.ev('B', '2026-09-12')] * 3 + \
-            [self.ev('C', '2026-09-18')] * 2 + [self.ev('D', '2026-09-13')]
+            [self.ev('C', '2026-09-18')] * 2 + [self.ev('D', '2026-09-13')] + \
+            [self.ev('Twist Museum', '2026-09-18', seg='Miscellaneous')] * 50   # attractions do not count
         facts = H.events_listing_facts(L)
         self.assertEqual((facts[0]['label'], facts[0]['value'], facts[0]['pair']),
-                         ('Busiest day: Friday 18 September', '7', 'events_all'))
+                         ('Most performances: Friday 18 September', '7', 'events_all'))
         self.assertEqual([(f['label'], f['value']) for f in facts if f['pair'] == 'venues_top'],
                          [('A', '5'), ('B', '3'), ('C', '2'), ('D', '1')])
 
