@@ -887,7 +887,7 @@ uses it verbatim when every pick agrees. Held for now, each a download the
 size of everything else combined: the MPS Monthly Crime Dashboard (136 MB,
 the Met's own borough counts) and the full LFB incident file (81 MB).
 Skipped: rough sleeping (CHAIN), quarterly PDF and ODS, and a subject that
-wants more care than four lines. 26 veins. Tests: harvest 60, select 38.
+wants more care than four lines. 25 veins. Tests: harvest 60, select 38.
 
 ### The Congestion Charge zone map (12 September 2026)
 "Can we thread a map showing the congestion charge zone?" The Datastore has
