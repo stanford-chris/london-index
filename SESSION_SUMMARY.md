@@ -686,9 +686,11 @@ arithmetic now (`_shift_month`).
   `type=TideGauge` and `qualifier=Tidal Level` within 25 km), so this still
   needs the Admiralty signup. Rail Data Marketplace, Ticketmaster and the
   Met Office portal are all still blocked on his own signups.
-- ⚠️ `london_index_methodology.py` was dirty in the tree from another
-  session and was not touched; its source-credit reply needs HM Land
-  Registry added once that session's work lands.
+- ✅ The pinned thread was reposted the same day with HM Land Registry and
+  the Rail Delivery Group in the source reply (nine clickable domains,
+  182 characters) and "house prices, trains due" on the figures card.
+  The 1 September station-figures edit, live but uncommitted for eleven
+  days, went in with it.
 - ⚠️ `london_index_post.py --dry-run` still writes `vein_last_at` to the
   state file, so a hand dry-run at 9:00 puts that vein on the 20-hour
   cooldown for the 12:30 run. Pre-existing; noted, not changed.
@@ -725,5 +727,5 @@ rendered from the live 5-train boards by calling `rail_facts()` directly,
 and the first scheduled run (08:00 BST) is the real check. Attribution to
 Rail Delivery Group rides the source link (`RAIL_SOURCE`), as the licence
 requires. 5 more tests in `test_london_index_harvest.py` (27).
-⚠️ The pinned methodology thread's source reply still lacks both HM Land
-Registry and the Rail Delivery Group; that file is another session's.
+✅ The pinned thread's source reply now carries both (reposted with
+`--replace` the same session, facets read back from the live thread).
