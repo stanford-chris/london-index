@@ -1699,8 +1699,9 @@ def dcms_table(sheet):
 # War Museums, Royal Museums Greenwich) get the sites clause instead of the
 # "one of 13", so the footnote stays one line either way.
 MUSEUM_LEAD = None
-MUSEUM_NOTE = 'Sponsored by the Department for Culture, Media and Sport; one of 13 in London'
-MUSEUM_NOTE_GROUP = 'Sponsored by the Department for Culture, Media and Sport; all its sites counted'
+# His wording, 12 September 2026.
+MUSEUM_NOTE = 'One of 13 London museums funded by the Department for Culture, Media and Sport.'
+MUSEUM_NOTE_GROUP = MUSEUM_NOTE[:-1] + '; all its sites counted.'
 DCMS_PAGE = ('https://www.gov.uk/government/statistics/'
              'dcms-sponsored-museums-and-galleries-annual-performance-indicators-202425')
 
