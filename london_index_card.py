@@ -240,6 +240,20 @@ def load_boroughs(path=BOROUGHS_GEOJSON):
     return out
 
 
+def load_borough_outers(path=BOROUGHS_GEOJSON):
+    """name -> list of OUTER rings only (the first ring of each polygon), for
+    counting crimes inside a borough with data.police.uk's poly query; holes
+    are drawn by render_borough_map() but must not be counted twice."""
+    import json
+    d = json.loads(Path(path).read_text(encoding='utf-8'))
+    out = {}
+    for f in d['features']:
+        g = f['geometry']
+        polys = g['coordinates'] if g['type'] == 'MultiPolygon' else [g['coordinates']]
+        out[f['properties']['LAD24NM']] = [[(float(x), float(y)) for x, y in poly[0]] for poly in polys]
+    return out
+
+
 def render_borough_map(highlight, town_hall, out_path, title='', caption='', boroughs=None):
     """Greater London's 33 boroughs in outline, `highlight` filled, its town
     hall dotted and a one-mile circle around it: the threaded reply for the
@@ -282,12 +296,17 @@ def render_borough_map(highlight, town_hall, out_path, title='', caption='', bor
             for name, rings in boroughs.items() if name != highlight]
     body.append(f'<path d="{path(boroughs[highlight])}" fill="{INK}" fill-opacity="0.55" '
                 f'stroke="{INK}" stroke-width="1.5" fill-rule="evenodd"/>')
-    lat, lng = town_hall
-    x, y = xy(lng, lat)
-    r = MILE_M / M_PER_DEG_LAT * scale   # a degree of latitude is `scale` px
-    body.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{r:.1f}" fill="{RED}" fill-opacity="0.18" '
-                f'stroke="{RED}" stroke-width="2"/>')
-    body.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="4.5" fill="{RED}" stroke="{CREAM}" stroke-width="2"/>')
+    if town_hall:
+        # The one-mile circle, from when the figures were a sample around
+        # the town hall (until 12 September 2026). Whole-borough counts need
+        # no circle: the fill is the area counted. Kept for any caller that
+        # still samples a point.
+        lat, lng = town_hall
+        x, y = xy(lng, lat)
+        r = MILE_M / M_PER_DEG_LAT * scale   # a degree of latitude is `scale` px
+        body.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{r:.1f}" fill="{RED}" fill-opacity="0.18" '
+                    f'stroke="{RED}" stroke-width="2"/>')
+        body.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="4.5" fill="{RED}" stroke="{CREAM}" stroke-width="2"/>')
     title_html = (f'<text x="30" y="34" font-family="Menlo,monospace" font-size="20" '
                   f'font-weight="bold" fill="#000">{_esc(title)}</text>' if title else '')
     caption_html = (f'<text x="30" y="{size - 24}" font-family="Menlo,monospace" '

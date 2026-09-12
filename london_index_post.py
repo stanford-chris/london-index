@@ -202,12 +202,14 @@ def main():
             pin = c['map_pin']
             try:
                 map_path = HERE / 'map.png'
+                spot = (pin['lat'], pin['lng']) if pin.get('lat') is not None else None
                 _, msize = card.render_borough_map(
-                    pin['name'], (pin['lat'], pin['lng']), map_path, title=pin['name'],
-                    caption='The circle is one mile around the town hall, the area the figures cover')
+                    pin['name'], spot, map_path, title=pin['name'],
+                    caption=('The circle is one mile around the town hall, the area the figures cover'
+                             if spot else ''))
                 map_alt = (f"Map of Greater London’s 33 boroughs in outline with {pin['name']} "
-                           f"filled in, its town hall marked and a one-mile circle around it, "
-                           f"the area the card’s figures cover.")
+                           f"filled in" + (", its town hall marked and a one-mile circle around it, "
+                                           "the area the card’s figures cover." if spot else "."))
                 mtb = client_utils.TextBuilder()
                 mtb.text('Boundaries: ').link('Office for National Statistics',
                                               'https://geoportal.statistics.gov.uk/')

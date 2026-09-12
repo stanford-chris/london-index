@@ -21,12 +21,13 @@ dcms_museums added 30 August):
                   each station's own published typical range.
   police        - data.police.uk: street-level crime, no key. Monthly, and
                   the API lags roughly two months behind the calendar.
-  police_boroughs - the same data.police.uk feed, sampled at 8 curated
-                  borough town halls instead of one central point.
-  police_spotlight - the same feed at all 33 town halls, one borough per
-                  card, least recently featured first: its count, most
-                  common category, change on the month and rank among the
-                  33. Added 12 September 2026 because a ranking of any set
+  police_boroughs - the same data.police.uk feed for all 33 boroughs as
+                  whole boroughs (its poly query, with the ONS outlines the
+                  map draws), cached by month; eight one-mile town-hall
+                  samples until 12 September 2026.
+  police_spotlight - the same whole-borough counts, one borough per card,
+                  least recently featured first: its count, most common
+                  category, change on the month and rank among the 33. Added 12 September 2026 because a ranking of any set
                   of boroughs is static; a place is not.
   cycle_hires   - London Datastore's own "Number of Bicycle Hires" dataset
                   (a daily-hire count TfL supplies to the Datastore, distinct
@@ -89,6 +90,12 @@ dcms_museums added 30 August):
                   minutes from 13 London termini, on time, late, cancelled,
                   and the termini ranked. Live. Key in Keychain
                   (london-index / rdm-ldbws-key). Added 12 September 2026.
+  rail_station  - the same boards, one station per card, least recently
+                  featured first: departing, on time, late, cancelled and
+                  the destination with the most trains. Live.
+  river_gauge   - the same six gauges, one per card, least recently featured
+                  first: level now, its typical low and high, and where in
+                  that range it sits. Live. Both added 12 September 2026.
 
 Usage:
     python3 london_index_harvest.py            # pool as pretty JSON
@@ -601,7 +608,15 @@ RIVER_STATIONS = {
 }
 
 
-def harvest_river_levels():
+_RIVER_MEMO = {}
+
+
+def _river_readings():
+    """[(name, value, low, high, pct, when)], failed: every curated gauge's
+    latest level against its own published typical range, fetched once per
+    process for river_levels and river_gauge both."""
+    if 'readings' in _RIVER_MEMO:
+        return _RIVER_MEMO['readings']
     readings = []
     failed = []
     for name, station_id in RIVER_STATIONS.items():
@@ -626,7 +641,46 @@ def harvest_river_levels():
         value, when = items[0]['value'], items[0].get('dateTime')
         pct = (value - low) / (high - low) * 100
         readings.append((name, value, low, high, pct, when))
+    _RIVER_MEMO['readings'] = (readings, failed)
+    return readings, failed
 
+
+# --- River gauge spotlight: one gauge against its own range -----------------
+GAUGE_OPENER_PREFIX = 'The '
+GAUGE_LEAD = 'River level against its own typical range'
+GAUGE_NOTE = 'Environment Agency gauge; the typical range is the band the gauge itself publishes'
+
+
+def gauge_facts(reading, url):
+    """One gauge's card: its level now, the low and high of its typical
+    range, and where in that range it sits. `reading` is one
+    _river_readings() tuple. Live: the dateline carries the clock."""
+    name, value, low, high, pct, when = reading
+    opener = {'emoji': '🌊', 'text': GAUGE_OPENER_PREFIX + name}
+    mk = lambda v, label: fact(v, label, 'Environment Agency', url, pair='gauge_all',
+                               context_note=GAUGE_NOTE, dateline_lead=GAUGE_LEAD,
+                               fixed_opener=opener)
+    where = ('below its range' if pct < 0 else 'above its range' if pct > 100
+             else f'{pct:.0f}% of the way up')
+    return [mk(f'{value:.2f}m', 'Level now'), mk(f'{low:.2f}m', 'Typical low'),
+            mk(f'{high:.2f}m', 'Typical high'), mk(where, 'Where it sits')]
+
+
+def harvest_river_gauge():
+    readings, failed = _river_readings()
+    if not readings:
+        return [], f'no station returned a usable reading; failed: {failed}'
+    by_name = {r[0]: r for r in readings}
+    name = spotlight_pick(list(by_name), last_featured(GAUGE_OPENER_PREFIX, RIVER_STATIONS))
+    url = f'https://environment.data.gov.uk/flood-monitoring/id/stations/{RIVER_STATIONS[name]}'
+    facts = gauge_facts(by_name[name], url)
+    if failed:
+        facts[0]['note'] = f'{len(failed)} of {len(RIVER_STATIONS)} curated gauges unusable: {failed}'
+    return facts, None
+
+
+def harvest_river_levels():
+    readings, failed = _river_readings()
     if not readings:
         return [], f'no station returned a usable reading; failed: {failed}'
 
@@ -810,12 +864,13 @@ POLICE_BOROUGHS = {
     'Bromley': (51.4064739, 0.0180213),
 }
 
-# ⚠️ Every borough figure is a one-mile sample around the town hall, not the
-# borough's total, and until 12 September 2026 no card said so: "Most:
-# Camden 3,179" under "Reported crime" read as Camden's monthly total. This
-# note rides every borough fact so compose() puts it in the card's footnote.
-BOROUGH_LEAD = 'Within a mile of each town hall'
-BOROUGH_NOTE = 'Eight boroughs sampled: ' + ', '.join(POLICE_BOROUGHS)
+# Whole-borough counts since 12 September 2026 (see CRIME_CACHE above), so the
+# cards need neither a sample qualifier on the second line nor a footnote
+# naming the sample: "Most: Westminster 7,212" under "Reported crime / July
+# 2026" now means what it says. Both kept as names so borough_facts() need
+# not change shape if a qualifier is ever wanted again.
+BOROUGH_LEAD = None
+BOROUGH_NOTE = None
 BOROUGH_TOP_N = 4
 # The categories worth a "which borough had the most" line, in the order a
 # reader expects them. Anti-social behaviour and other-theft are left out
@@ -826,14 +881,109 @@ BOROUGH_TYPE_CATEGORIES = ('violent-crime', 'shoplifting', 'vehicle-crime',
 BOROUGH_TYPES_N = 4
 
 
+
+# --- Whole-borough crime counts, cached by month ---------------------------
+# Until 12 September 2026 every borough figure was a one-mile sample around
+# the town hall, because data.police.uk has no Met borough boundaries of its
+# own. It does take a polygon, and the ONS borough outlines the map draws
+# are that polygon: measured that day, Westminster, the busiest, answers in
+# one call at 7,212 crimes for July 2026, under the API's 10,000-crime cap,
+# and the six multi-part boroughs answer ring by ring. The proxy had been
+# understating badly: Barking and Dagenham's whole borough is 2,166 against
+# the sample's 921. Counts are cached per month at CRIME_CACHE (gitignored,
+# derived), so the 33 boroughs' polygons are fetched once a month, not four
+# times a day; a borough whose fetch fails is left out of that month and
+# retried next run, never cached as zero.
+CRIME_CACHE = Path(__file__).parent / 'data' / 'crime_by_borough.json'
+POLY_URL = 'https://data.police.uk/api/crimes-street/all-crime'
+
+
+def _poly_post(ring, ym):
+    """The crimes inside one ring for one month, or None if the API did not
+    answer 200 with a list (a 503 is its over-10,000 refusal)."""
+    poly = ':'.join(f'{lat:.5f},{lon:.5f}' for lon, lat in ring)
+    with tempfile.NamedTemporaryFile(suffix='.json', delete=False) as fh:
+        out = fh.name
+    try:
+        r = subprocess.run(['curl', '-sS', '--max-time', '90', '-o', out, '-w', '%{http_code}',
+                            '-X', 'POST', '--data-urlencode', f'poly={poly}',
+                            '--data-urlencode', f'date={ym}', POLY_URL],
+                           capture_output=True, text=True)
+        if r.returncode != 0 or r.stdout.strip() != '200':
+            return None
+        try:
+            d = json.loads(Path(out).read_text())
+        except ValueError:
+            return None
+        return d if isinstance(d, list) else None
+    finally:
+        Path(out).unlink(missing_ok=True)
+
+
+def _read_cache(path=CRIME_CACHE):
+    try:
+        return json.loads(Path(path).read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+def _write_cache(cache, path=CRIME_CACHE):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix('.tmp')
+    tmp.write_text(json.dumps(cache, indent=1, sort_keys=True))
+    tmp.replace(path)
+
+
+def borough_month_whole(name, ym, outers):
+    """{'total', 'categories'} for the whole borough, summed over its outer
+    rings, or None if any ring failed (a partial borough is not a borough)."""
+    total = 0
+    cats = {}
+    for ring in outers:
+        recs = _poly_post(ring, ym)
+        if recs is None:
+            return None
+        total += len(recs)
+        for r in recs:
+            cats[r['category']] = cats.get(r['category'], 0) + 1
+    return {'total': total, 'categories': cats}
+
+
+def whole_borough_counts(ym, names=None, cache_path=CRIME_CACHE, fetch=borough_month_whole):
+    """name -> {'total', 'categories'} for every borough that answered for
+    `ym`, from the cache where it has them and the API where it does not.
+    `names` defaults to every borough in the boundary file."""
+    import london_index_card as card
+    outers = card.load_borough_outers()
+    names = list(names or outers)
+    cache = _read_cache(cache_path)
+    month = cache.setdefault(ym, {})
+    fetched = 0
+    for name in names:
+        if name in month or name not in outers:
+            continue
+        rec = fetch(name, ym, outers[name])
+        if rec is not None:
+            month[name] = rec
+            fetched += 1
+    if fetched:
+        _write_cache(cache, cache_path)
+        # stderr: the harvester's own main() prints the pool as JSON on stdout.
+        print(f'Whole-borough crime: fetched {fetched} borough(s) for {ym}; '
+              f'{len(month)} of {len(names)} now cached.', file=sys.stderr)
+    return {n: month[n] for n in names if n in month}
+
+
 def borough_facts(counts, prev_counts, cats, ym, url):
     """The borough card's facts from this month's per-borough counts, the
-    previous month's, and each borough's per-category counts. Pure, like
-    central_facts(). Four card shapes from one month's data, where until
-    12 September 2026 there were two (the gap, and a near-tie when one
-    existed) and the gap alone was posted five times in five days, since
-    the busiest and quietest of eight fixed boroughs do not change within a
-    month:
+    previous month's, and each borough's per-category counts, for all 33
+    boroughs as whole boroughs (since 12 September 2026; eight one-mile
+    samples before that). Pure, like central_facts(). Five card shapes from
+    one month's data, where until that day there were two (the gap, and a
+    near-tie when one existed) and the gap alone was posted five times in
+    five days, since the busiest and quietest of eight fixed boroughs do not
+    change within a month:
       - "police_gap": most and fewest, as before
       - "police_heat": a genuine near-tie, when one exists, as before
       - "police_top": the BOROUGH_TOP_N busiest, ranked, picked whole
@@ -899,43 +1049,25 @@ def borough_facts(counts, prev_counts, cats, ym, url):
 
 
 def harvest_police_boroughs():
-    counts = {}
-    cats = {}
-    prev_counts = {}
-    failed = []
-    ym_used = None
-    for name, (lat, lng) in POLICE_BOROUGHS.items():
-        ym, d = _latest_police_month(lat, lng)
-        if ym is None:
-            failed.append(name)
-            continue
-        ym_used = ym_used or ym
-        if ym != ym_used:
-            # a borough landed on a different "latest" month than the rest -
-            # report rather than silently compare across two different
-            # months, which would just be measuring API lag, not crime.
-            failed.append(f'{name} (only {ym} populated, rest are {ym_used})')
-            continue
-        counts[name] = len(d)
-        per = {}
-        for r in d:
-            per[r['category']] = per.get(r['category'], 0) + 1
-        cats[name] = per
-        prev = _police_month(lat, lng, _shift_month(ym, 1))
-        if prev:
-            prev_counts[name] = len(prev)
-
-    if len(counts) < 2:
-        return [], f'fewer than 2 comparable boroughs; failed: {failed}'
-    # A change pair over a partial previous month would compare eight
-    # boroughs against however many happened to answer; all or none.
-    if len(prev_counts) != len(counts):
+    ym, _ = _latest_police_month(51.5074, -0.1278)
+    if ym is None:
+        return [], 'no populated month found in the last 4 tried'
+    now = whole_borough_counts(ym)
+    if len(now) < 2:
+        return [], f'fewer than 2 boroughs answered for {ym}'
+    counts = {n: r['total'] for n, r in now.items()}
+    cats = {n: r['categories'] for n, r in now.items()}
+    prev = whole_borough_counts(_shift_month(ym, 1), names=list(now))
+    prev_counts = {n: r['total'] for n, r in prev.items()}
+    # A change pair over a partial previous month would compare the boroughs
+    # against however many happened to answer; all or none.
+    if set(prev_counts) != set(counts):
         prev_counts = {}
-
-    url = 'https://data.police.uk/api/crimes-street/all-crime?lat={lat}&lng={lng}&date={date}'
-    facts = borough_facts(counts, prev_counts, cats, ym_used, url)
-    if failed:
-        facts[0]['note'] = f'{len(failed)} of {len(POLICE_BOROUGHS)} curated boroughs unusable: {failed}'
+    url = f'{POLY_URL}?poly=<borough outline>&date={ym}'
+    facts = borough_facts(counts, prev_counts, cats, ym, url)
+    missing = sorted(set(ALL_BOROUGHS) - set(counts))
+    if missing:
+        facts[0]['note'] = f'{len(missing)} of {len(ALL_BOROUGHS)} boroughs did not answer for {ym}: {missing}'
     return facts, None
 
 
@@ -981,7 +1113,7 @@ ALL_BOROUGHS.update({
     'Wandsworth': (51.4566514, -0.1909077),
 })
 SPOTLIGHT_OPENER_PREFIX = 'Reported crime in '
-SPOTLIGHT_LEAD = 'Within a mile of the town hall'
+SPOTLIGHT_LEAD = None   # whole-borough counts since 12 September 2026; the dateline is the month
 # No footnote, his call 12 September 2026 ("I'm not sure I see the value"):
 # the rank value already says "of 33" and the threaded map shows the sample.
 SPOTLIGHT_NOTE = None
@@ -997,10 +1129,13 @@ def _ordinal(n):
     return f'{n}{suffix}'
 
 
-def spotlight_last_featured(history_path=CARD_HISTORY_PATH):
-    """Borough name -> the `at` string of its most recent spotlight card,
-    read from the openers in the card log. Unreadable lines are skipped."""
+def last_featured(prefix, names, history_path=CARD_HISTORY_PATH):
+    """name -> the `at` string of the most recent card whose opener was
+    `prefix` + name, for names in `names`, read from the card log. The
+    rotation mechanism every spotlight-style card shares (boroughs,
+    stations, river gauges). Unreadable lines are skipped."""
     seen = {}
+    names = set(names)
     if not Path(history_path).exists():
         return seen
     for line in Path(history_path).read_text(encoding='utf-8').splitlines():
@@ -1009,11 +1144,15 @@ def spotlight_last_featured(history_path=CARD_HISTORY_PATH):
         except ValueError:
             continue
         opener = rec.get('opener') or ''
-        if opener.startswith(SPOTLIGHT_OPENER_PREFIX):
-            name = opener[len(SPOTLIGHT_OPENER_PREFIX):]
-            if name in ALL_BOROUGHS and rec.get('at', '') > seen.get(name, ''):
+        if opener.startswith(prefix):
+            name = opener[len(prefix):]
+            if name in names and rec.get('at', '') > seen.get(name, ''):
                 seen[name] = rec['at']
     return seen
+
+
+def spotlight_last_featured(history_path=CARD_HISTORY_PATH):
+    return last_featured(SPOTLIGHT_OPENER_PREFIX, ALL_BOROUGHS, history_path)
 
 
 def spotlight_pick(candidates, last_featured):
@@ -1022,24 +1161,22 @@ def spotlight_pick(candidates, last_featured):
     return sorted(candidates, key=lambda n: (n in last_featured, last_featured.get(n, ''), n))[0]
 
 
-def spotlight_facts(name, records, prev_records, all_counts, ym, url, town_hall=None):
-    """One borough's card. `all_counts` is borough -> count for every
-    borough that answered this month, for the rank; under
-    SPOTLIGHT_MIN_RANKED answering, no rank line."""
+def spotlight_facts(name, total, categories, prev_total, all_counts, ym, url):
+    """One borough's card, from its whole-borough total and per-category
+    counts for the month, the previous month's total (or None) and every
+    answering borough's total for the rank; under SPOTLIGHT_MIN_RANKED
+    answering, no rank line. The map pin names the borough and carries no
+    coordinates: the fill is the area counted, so no circle."""
     opener = {'emoji': '🚓', 'text': SPOTLIGHT_OPENER_PREFIX + name}
-    town_hall = town_hall or ALL_BOROUGHS.get(name)
-    pin = {'name': name, 'lat': town_hall[0], 'lng': town_hall[1]} if town_hall else None
+    pin = {'name': name, 'lat': None, 'lng': None}
     mk = lambda v, label: fact(v, label, 'data.police.uk', url, period=ym, pair='spot_all',
                                context_note=SPOTLIGHT_NOTE, dateline_lead=SPOTLIGHT_LEAD,
                                fixed_opener=opener, map_pin=pin)
-    cats = {}
-    for r in records:
-        cats[r['category']] = cats.get(r['category'], 0) + 1
-    top = max(cats.items(), key=lambda kv: kv[1])
-    facts = [mk(f'{len(records):,}', 'Reported crimes'),
+    top = max(categories.items(), key=lambda kv: kv[1])
+    facts = [mk(f'{total:,}', 'Reported crimes'),
              mk(f'{top[1]:,}', f'Most common: {_category_name(top[0])}')]
-    if prev_records:
-        change = _pct_change(len(records), len(prev_records))
+    if prev_total:
+        change = _pct_change(total, prev_total)
         if change is not None:
             facts.append(mk(change, f'Change since {_readable_month(_shift_month(ym, 1))}'))
     if len(all_counts) >= SPOTLIGHT_MIN_RANKED and name in all_counts:
@@ -1055,20 +1192,16 @@ def harvest_police_spotlight():
     ym, _ = _latest_police_month(51.5074, -0.1278)
     if ym is None:
         return [], 'no populated month found in the last 4 tried'
-    counts = {}
-    for name, (lat, lng) in ALL_BOROUGHS.items():
-        d = _police_month(lat, lng, ym)
-        if d:
-            counts[name] = len(d)
-    if not counts:
+    now = whole_borough_counts(ym)
+    if not now:
         return [], f'no borough answered for {ym}'
-    name = spotlight_pick(list(counts), spotlight_last_featured())
-    lat, lng = ALL_BOROUGHS[name]
-    records = _police_month(lat, lng, ym)
-    prev = _police_month(lat, lng, _shift_month(ym, 1))
-    url = f'https://data.police.uk/api/crimes-street/all-crime?lat={lat}&lng={lng}&date={ym}'
-    facts = spotlight_facts(name, records, prev, counts, ym, url)
-    missing = sorted(set(ALL_BOROUGHS) - set(counts))
+    name = spotlight_pick(list(now), spotlight_last_featured())
+    prev = whole_borough_counts(_shift_month(ym, 1), names=[name]).get(name)
+    url = f'{POLY_URL}?poly=<borough outline>&date={ym}'
+    facts = spotlight_facts(name, now[name]['total'], now[name]['categories'],
+                            prev['total'] if prev else None,
+                            {n: r['total'] for n, r in now.items()}, ym, url)
+    missing = sorted(set(ALL_BOROUGHS) - set(now))
     if missing:
         facts[0]['note'] = f'{len(missing)} of {len(ALL_BOROUGHS)} boroughs did not answer for {ym}: {missing}'
     return facts, None
@@ -2160,19 +2293,78 @@ def rail_facts(boards, url=RAIL_PAGE):
     return facts
 
 
+_RAIL_MEMO = {}
+
+
+def _rail_boards():
+    """(boards, failed, error): every terminus's trainServices for the
+    window, fetched once per process, since rail_departures and
+    rail_station both read the same 13 boards in one run."""
+    if 'boards' not in _RAIL_MEMO:
+        key = _rdm_key()
+        if not key:   # not memoised: a missing key is a fact about this call, not the boards
+            return {}, [], 'no Rail Data Marketplace key in Keychain (london-index / rdm-ldbws-key)'
+        boards = {}
+        failed = []
+        for name, crs in RAIL_TERMINI.items():
+            d = get_json_with_headers(RAIL_API.format(crs=crs, window=RAIL_WINDOW_MIN),
+                                      {'x-apikey': key, 'Accept': 'application/json'})
+            if not isinstance(d, dict) or d.get('crs') != crs or not d.get('areServicesAvailable', True):
+                failed.append(name)
+                continue
+            boards[name] = d.get('trainServices') or []
+        _RAIL_MEMO['boards'] = (boards, failed, None)
+    return _RAIL_MEMO['boards']
+
+
+# --- Station spotlight: one of the 13, its own board ------------------------
+STATION_OPENER_PREFIX = 'Trains from '
+STATION_LEAD = 'Departures in the next hour'
+STATION_NOTE = 'National Rail, as on the live board'
+STATION_MIN_DEPARTURES = 8
+
+
+def station_facts(name, services, url=RAIL_PAGE):
+    """One station's card from its own board: departing within the hour, on
+    time, late, cancelled, and the destination with the most trains. All
+    share the pair "station_all" and a fixed opener naming the station;
+    the opener prefix is what last_featured() reads back for the rotation."""
+    opener = {'emoji': '🚆', 'text': STATION_OPENER_PREFIX + name}
+    mk = lambda v, label: fact(f'{v:,}', label, RAIL_SOURCE, url, pair='station_all',
+                               context_note=STATION_NOTE, dateline_lead=STATION_LEAD,
+                               fixed_opener=opener)
+    counts = {'on time': 0, 'late': 0, 'cancelled': 0, 'other': 0}
+    dests = {}
+    for svc in services:
+        counts[classify_departure(svc)] += 1
+        for d in svc.get('destination') or []:
+            dn = (d.get('locationName') or '').strip()
+            if dn:
+                dests[dn] = dests.get(dn, 0) + 1
+    facts = [mk(len(services), 'Departing within the hour'), mk(counts['on time'], 'On time'),
+             mk(counts['late'], 'Running late'), mk(counts['cancelled'], 'Cancelled')]
+    if dests:
+        dn, n = max(dests.items(), key=lambda kv: (kv[1], kv[0]))
+        facts.append(mk(n, f'Most trains to: {dn}'))
+    return facts
+
+
+def harvest_rail_station():
+    boards, failed, err = _rail_boards()
+    if err:
+        return [], err
+    candidates = [n for n, s in boards.items() if len(s) >= STATION_MIN_DEPARTURES]
+    if not candidates:
+        return [], (f'no station has {STATION_MIN_DEPARTURES} departures due; '
+                    f'boards too quiet for a station card')
+    name = spotlight_pick(candidates, last_featured(STATION_OPENER_PREFIX, RAIL_TERMINI))
+    return station_facts(name, boards[name]), None
+
+
 def harvest_rail_departures():
-    key = _rdm_key()
-    if not key:
-        return [], 'no Rail Data Marketplace key in Keychain (london-index / rdm-ldbws-key)'
-    boards = {}
-    failed = []
-    for name, crs in RAIL_TERMINI.items():
-        d = get_json_with_headers(RAIL_API.format(crs=crs, window=RAIL_WINDOW_MIN),
-                                  {'x-apikey': key, 'Accept': 'application/json'})
-        if not isinstance(d, dict) or d.get('crs') != crs or not d.get('areServicesAvailable', True):
-            failed.append(name)
-            continue
-        boards[name] = d.get('trainServices') or []
+    boards, failed, err = _rail_boards()
+    if err:
+        return [], err
     if len(boards) < RAIL_MIN_STATIONS:
         return [], f'only {len(boards)} of {len(RAIL_TERMINI)} termini answered; failed: {failed}'
     total = sum(len(v) for v in boards.values())
@@ -2220,6 +2412,8 @@ HARVESTERS = {
     'road_works': harvest_road_works,
     'lfb_animals': harvest_lfb_animals,
     'rail_departures': harvest_rail_departures,
+    'rail_station': harvest_rail_station,
+    'river_gauge': harvest_river_gauge,
 }
 
 

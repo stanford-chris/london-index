@@ -110,13 +110,11 @@ class BoroughFacts(unittest.TestCase):
                          [('Violent crime: Camden', '544'), ('Shoplifting: Croydon', '212'),
                           ('Vehicle crime: Newham', '123'), ('Burglary: Westminster', '90')])
 
-    def test_every_fact_carries_the_sample_note(self):
+    def test_whole_borough_cards_carry_no_sample_qualifier(self):
         for f in self.facts():
-            self.assertEqual(f['context_note'], H.BOROUGH_NOTE)
-            self.assertEqual(f['dateline_lead'], H.BOROUGH_LEAD)
+            self.assertIsNone(f['context_note'])
+            self.assertIsNone(f['dateline_lead'])
             self.assertEqual(f['period'], '2026-07')
-        self.assertIn('Eight boroughs sampled', H.BOROUGH_NOTE)
-        self.assertEqual(H.BOROUGH_LEAD, 'Within a mile of each town hall')
 
 
 class FloodFacts(unittest.TestCase):
@@ -222,6 +220,9 @@ class AnimalFacts(unittest.TestCase):
 
 
 class RailFacts(unittest.TestCase):
+    def setUp(self):
+        H._RAIL_MEMO.clear()   # the boards are memoised per process; each test fetches afresh
+
     def svc(self, std, etd, cancelled=False):
         return {'std': std, 'etd': etd, 'isCancelled': cancelled}
 
@@ -330,11 +331,10 @@ class Spotlight(unittest.TestCase):
         self.assertEqual(H.spotlight_last_featured(fh.name), {'Sutton': '2026-09-03 08:00:00'})
 
     def test_facts(self):
-        recs = [{'category': 'violent-crime'}] * 359 + [{'category': 'vehicle-crime'}] * 123
-        prev = [{'category': 'violent-crime'}] * 400
+        cats = {'violent-crime': 359, 'vehicle-crime': 123}
         counts = {f'B{i}': 100 * i for i in range(1, 33)}
         counts['Newham'] = 482
-        facts = H.spotlight_facts('Newham', recs, prev, counts, '2026-07', 'u')
+        facts = H.spotlight_facts('Newham', 482, cats, 400, counts, '2026-07', 'u')
         self.assertEqual([(f['label'], f['value']) for f in facts],
                          [('Reported crimes', '482'), ('Most common: Violent crime', '359'),
                           ('Change since June', '+20%'), ('Rank among boroughs', '29th highest of 33')])
@@ -344,8 +344,7 @@ class Spotlight(unittest.TestCase):
             self.assertEqual(f['pair'], 'spot_all')
 
     def test_no_rank_when_too_few_boroughs_answered(self):
-        recs = [{'category': 'burglary'}] * 5
-        facts = H.spotlight_facts('Bexley', recs, None, {'Bexley': 5, 'Brent': 9}, '2026-07', 'u')
+        facts = H.spotlight_facts('Bexley', 5, {'burglary': 5}, None, {'Bexley': 5, 'Brent': 9}, '2026-07', 'u')
         self.assertEqual([f['label'] for f in facts], ['Reported crimes', 'Most common: Burglary'])
 
 
@@ -382,14 +381,19 @@ class BoroughMap(unittest.TestCase):
         with self.assertRaises(card.CardRenderError):
             card.render_borough_map('Narnia', (51.5, -0.1), '/tmp/x.png', boroughs={'A': [[(0, 0), (1, 0), (1, 1), (0, 1)]]})
 
-    def test_spotlight_facts_carry_the_pin(self):
-        facts = H.spotlight_facts('Sutton', [{'category': 'burglary'}] * 3, None, {}, '2026-07', 'u')
-        lat, lng = H.ALL_BOROUGHS['Sutton']
-        self.assertTrue(all(f['map_pin'] == {'name': 'Sutton', 'lat': lat, 'lng': lng} for f in facts))
+    def test_spotlight_facts_carry_the_pin_without_coordinates(self):
+        facts = H.spotlight_facts('Sutton', 3, {'burglary': 3}, None, {}, '2026-07', 'u')
+        self.assertTrue(all(f['map_pin'] == {'name': 'Sutton', 'lat': None, 'lng': None} for f in facts))
+
+    def test_outer_rings_cover_all_33(self):
+        import london_index_card as card
+        outers = card.load_borough_outers()
+        self.assertEqual(set(outers), set(H.ALL_BOROUGHS))
+        self.assertTrue(all(len(rings) >= 1 and all(len(r) >= 4 for r in rings) for rings in outers.values()))
 
     def test_compose_passes_the_pin_through(self):
         import london_index_compose as C
-        facts = H.spotlight_facts('Sutton', [{'category': 'burglary'}] * 3, None, {}, '2026-07', 'u')
+        facts = H.spotlight_facts('Sutton', 3, {'burglary': 3}, None, {}, '2026-07', 'u')
         for i, f in enumerate(facts):
             f['id'] = f'x:{i}'
             f['vein'] = 'police_spotlight'
@@ -400,6 +404,98 @@ class BoroughMap(unittest.TestCase):
             f['id'] = f'y:{i}'
             f['vein'] = 'police'
         self.assertIsNone(C.compose({'opener': {'emoji': '', 'text': 'T'}, 'ids': [f['id'] for f in plain]}, plain)['map_pin'])
+
+
+class WholeBoroughCache(unittest.TestCase):
+    def test_fetches_only_what_the_cache_lacks_and_never_caches_a_failure(self):
+        import json, tempfile
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / 'c.json'
+            path.write_text(json.dumps({'2026-07': {'Camden': {'total': 5, 'categories': {'x': 5}}}}))
+            calls = []
+
+            def fake(name, ym, outers):
+                calls.append(name)
+                return None if name == 'Bexley' else {'total': 1, 'categories': {'y': 1}}
+            out = H.whole_borough_counts('2026-07', names=['Camden', 'Bexley', 'Sutton'],
+                                         cache_path=path, fetch=fake)
+            self.assertEqual(sorted(calls), ['Bexley', 'Sutton'])
+            self.assertEqual(set(out), {'Camden', 'Sutton'})
+            cached = json.loads(path.read_text())['2026-07']
+            self.assertIn('Sutton', cached)
+            self.assertNotIn('Bexley', cached)
+
+    def test_a_failed_ring_fails_the_borough(self):
+        with unittest.mock.patch.object(H, '_poly_post', side_effect=[[{'category': 'a'}] * 3, None]):
+            self.assertIsNone(H.borough_month_whole('X', '2026-07', [[(0, 0)] * 4, [(1, 1)] * 4]))
+        with unittest.mock.patch.object(H, '_poly_post', side_effect=[[{'category': 'a'}] * 3, [{'category': 'b'}]]):
+            self.assertEqual(H.borough_month_whole('X', '2026-07', [[(0, 0)] * 4, [(1, 1)] * 4]),
+                             {'total': 4, 'categories': {'a': 3, 'b': 1}})
+
+
+class StationAndGaugeSpotlights(unittest.TestCase):
+    def setUp(self):
+        H._RAIL_MEMO.clear()
+        H._RIVER_MEMO.clear()
+
+    def svc(self, etd, dest, op='X'):
+        return {'std': '09:00', 'etd': etd, 'isCancelled': False, 'operator': op,
+                'destination': [{'locationName': dest}]}
+
+    def test_station_facts(self):
+        services = [self.svc('On time', 'Reading')] * 5 + [self.svc('09:09', 'Reading')] + \
+                   [self.svc('Cancelled', 'Oxford')] + [self.svc('On time', 'Bristol Temple Meads')] * 2
+        facts = H.station_facts('Paddington', services)
+        self.assertEqual([(f['label'], f['value']) for f in facts],
+                         [('Departing within the hour', '9'), ('On time', '7'), ('Running late', '1'),
+                          ('Cancelled', '1'), ('Most trains to: Reading', '6')])
+        for f in facts:
+            self.assertEqual(f['fixed_opener'], {'emoji': '🚆', 'text': 'Trains from Paddington'})
+            self.assertEqual(f['pair'], 'station_all')
+            self.assertIsNone(f['period'])
+
+    def test_station_rotation_ignores_the_network_card_opener(self):
+        import json, tempfile
+        fh = tempfile.NamedTemporaryFile('w', suffix='.jsonl', delete=False)
+        for at, opener in (('2026-09-12 08:00:00', 'Trains from London’s stations'),
+                           ('2026-09-12 09:00:00', 'Trains from Waterloo')):
+            fh.write(json.dumps({'at': at, 'opener': opener, 'lines': []}) + '\n')
+        fh.close()
+        self.addCleanup(Path(fh.name).unlink)
+        self.assertEqual(H.last_featured(H.STATION_OPENER_PREFIX, H.RAIL_TERMINI, fh.name),
+                         {'Waterloo': '2026-09-12 09:00:00'})
+
+    def test_quiet_stations_are_not_candidates(self):
+        boards = {n: [] for n in H.RAIL_TERMINI}
+        boards['Waterloo'] = [self.svc('On time', 'Woking')] * H.STATION_MIN_DEPARTURES
+        boards['Euston'] = [self.svc('On time', 'Watford Junction')] * 3
+        with unittest.mock.patch.object(H, '_rail_boards', return_value=(boards, [], None)), \
+             unittest.mock.patch.object(H, 'last_featured', return_value={}):
+            facts, err = H.harvest_rail_station()
+        self.assertIsNone(err)
+        self.assertEqual(facts[0]['fixed_opener']['text'], 'Trains from Waterloo')
+        boards['Waterloo'] = boards['Waterloo'][:3]
+        with unittest.mock.patch.object(H, '_rail_boards', return_value=(boards, [], None)):
+            facts, err = H.harvest_rail_station()
+        self.assertEqual(facts, [])
+        self.assertIn('too quiet', err)
+
+    def test_gauge_facts(self):
+        facts = H.gauge_facts(('Thames at Kingston', 4.312, 3.9, 4.6, 58.857, 'when'), 'u')
+        self.assertEqual([(f['label'], f['value']) for f in facts],
+                         [('Level now', '4.31m'), ('Typical low', '3.90m'), ('Typical high', '4.60m'),
+                          ('Where it sits', '59% of the way up')])
+        self.assertEqual(facts[0]['fixed_opener']['text'], 'The Thames at Kingston')
+        self.assertEqual(H.gauge_facts(('X', 5.0, 3.0, 4.0, 200.0, 'w'), 'u')[3]['value'], 'above its range')
+        self.assertEqual(H.gauge_facts(('X', 1.0, 3.0, 4.0, -200.0, 'w'), 'u')[3]['value'], 'below its range')
+
+    def test_gauge_rotation_picks_least_recent_gauge(self):
+        readings = [(n, 1.0, 0.5, 2.0, 33.3, 'w') for n in H.RIVER_STATIONS]
+        with unittest.mock.patch.object(H, '_river_readings', return_value=(readings, [])), \
+             unittest.mock.patch.object(H, 'last_featured', return_value={n: '2026-09-01' for n in list(H.RIVER_STATIONS)[1:]}):
+            facts, err = H.harvest_river_gauge()
+        self.assertIsNone(err)
+        self.assertEqual(facts[0]['fixed_opener']['text'], 'The ' + list(H.RIVER_STATIONS)[0])
 
 
 class DatelineLead(unittest.TestCase):
@@ -414,8 +510,9 @@ class DatelineLead(unittest.TestCase):
         return C.compose({'opener': {'emoji': '', 'text': 'T'}, 'ids': [f['id'] for f in facts]}, facts)
 
     def test_lead_rides_the_dateline_with_the_period(self):
-        facts = H.borough_facts({'A': 10, 'B': 5, 'C': 3, 'D': 1}, {}, {}, '2026-07', 'u')[:2]
-        self.assertEqual(self.compose(facts)['dateline'], 'Within a mile of each town hall, July 2026')
+        facts = [H.fact('1', 'a', 's', 'u', period='2026-07', dateline_lead='Within a mile of X'),
+                 H.fact('2', 'b', 's', 'u', period='2026-07', dateline_lead='Within a mile of X')]
+        self.assertEqual(self.compose(facts)['dateline'], 'Within a mile of X, July 2026')
 
     def test_lead_alone_when_there_is_no_single_period(self):
         facts = [H.fact('1', 'a', 's', 'u', period='2026-06', dateline_lead='Lead'),

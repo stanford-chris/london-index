@@ -818,3 +818,43 @@ cooldown for the next real run) and its ids into `recent_ids`. Pinned by
 And the repo gained a `README.md`, the one bot repo without one, which the
 weekly bot scout reads for truth against the account; plus the MIT `LICENSE`
 the other bot repos carry.
+
+### Three more, his list (12 September 2026)
+- **Trains running late, by operator** (`rail_ops_top`): the boards name each
+  train's operator, so the late ones are counted by company, ranked, top
+  four, made only when `RAIL_OPS_MIN` (3) operators have a late train.
+  Fixed opener "Trains running late, by operator".
+- **Whole-borough crime counts, replacing the one-mile proxy.** Probed first:
+  data.police.uk's `poly` query, POSTed with a borough's ONS outline (the
+  one the map draws), answers Westminster, the busiest, in one call at 7,212
+  for July 2026, under the 10,000 cap the API refuses with a 503; the six
+  multi-part boroughs answer ring by ring in 3 to 5 s each. The proxy had
+  been understating badly: Barking and Dagenham whole is 2,166 against the
+  sample's 921. Both borough cards now use whole boroughs, all 33, cached by
+  month at `data/crime_by_borough.json` (gitignored, derived): the polygons
+  are fetched once a month, not four times a day, and a borough whose fetch
+  fails is left out of that month and retried, never cached as zero. The
+  second-line qualifier and footnote on both cards are gone (nothing to
+  qualify), and the map's one-mile circle with them: the fill IS the area
+  counted. `render_borough_map(town_hall=None)` draws no circle;
+  `load_borough_outers()` gives the outer rings only, so a hole is drawn but
+  never counted twice. ⚠️ The ranked shapes now rank all 33, not the eight:
+  with real totals, "Most: Westminster" is a true statement about London
+  and "Most: Camden" among eight arbitrary boroughs was not. The eight's
+  coordinates stay in `ALL_BOROUGHS` for the point-in-polygon test.
+- **Station spotlight** (`rail_station`): one of the 13 stations per card,
+  least recently featured first, from its own board: departing, on time,
+  late, cancelled, and the destination with the most trains. Refuses unless
+  a station has `STATION_MIN_DEPARTURES` (8) due. The rotation reads
+  openers "Trains from <station>" and, since `RAIL_TERMINI` is the name set,
+  never mistakes the network card's "Trains from London’s stations".
+- **River gauge spotlight** (`river_gauge`): one of the six gauges per card,
+  least recently featured first: level now, its typical low and high, and
+  where in that range it sits ("53% of the way up", or above/below its
+  range). Live. Verified: the Thames at Kingston, 4.38 m, 53 percent up.
+- `last_featured(prefix, names)` is the rotation every spotlight shares;
+  `_rail_boards()` and `_river_readings()` are memoised per process so the
+  two rail veins and the two river veins each fetch once. ⚠️ The memo must
+  not cache a missing-key refusal, and tests clear both memos in `setUp`:
+  the first run of the suite had one test's no-key result served to the
+  next. 19 veins now. Tests: harvest 52, select 38, post 2.
