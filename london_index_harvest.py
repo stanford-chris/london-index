@@ -1889,8 +1889,10 @@ RAIL_API = ('https://api1.raildata.org.uk/1010-live-departure-board-dep1_2/LDBWS
 RAIL_WINDOW_MIN = 60
 RAIL_SOURCE = 'National Rail (Rail Delivery Group)'
 RAIL_PAGE = 'https://www.nationalrail.co.uk/'
+# "Stations", not "termini", on the card and in this note: Chris's wording,
+# 12 September 2026, since termini is railway jargon to most readers.
 RAIL_NOTE = (f'National Rail trains due in the next {RAIL_WINDOW_MIN} minutes from '
-             f'{len(RAIL_TERMINI)} London termini, as on the live boards')
+             f'{len(RAIL_TERMINI)} of London’s main stations, as on the live boards')
 RAIL_TOP_N = 4
 # Under this many departures across every terminus the boards are the
 # small hours (9 at 1:36 a.m. on 12 September 2026), not a city, and no
