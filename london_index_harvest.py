@@ -65,6 +65,20 @@ dcms_museums added 30 August):
                   institutions out of the 18 DCMS sponsors nationally. See
                   LONDON_DCMS_MUSEUMS for which and why. Annual, like
                   police_boroughs is monthly - next update expected 2027.
+  stop_search   - data.police.uk again, the Metropolitan Police's stop and
+                  search records for the newest populated month: searches,
+                  arrests, no-further-action, searches for drugs and weapons.
+  house_prices  - HM Land Registry's UK House Price Index, its own linked-
+                  data JSON, no key: London's average price and annual
+                  change, flats against detached houses, and all 33
+                  boroughs ranked. Monthly, about two months behind.
+  road_works    - TfL's Road/all/Disruption: everything TfL lists as a
+                  disruption on its own roads right now. Live.
+  lfb_animals   - London Datastore's "Animal rescue incidents attended by
+                  LFB", a monthly XLSX drop: the newest complete month's
+                  rescues by kind of animal and borough, and the brigade's
+                  own notional cost. The four above were added 12 September
+                  2026; see harvest_police_boroughs()'s comment for why.
 
 Usage:
     python3 london_index_harvest.py            # pool as pretty JSON
@@ -497,19 +511,45 @@ def harvest_tfl_bikes():
     return facts, None
 
 
-def harvest_flood():
-    d = get_json('https://environment.data.gov.uk/flood-monitoring/id/floods?county=London')
-    if not isinstance(d, dict) or 'items' not in d:
-        return [], 'flood-monitoring fetch failed'
-    items = d['items']
+FLOOD_URL = 'https://environment.data.gov.uk/flood-monitoring/id/floods?county=London'
+
+
+def flood_facts(items, url=FLOOD_URL):
+    """Warnings and alerts counted separately, from the feed's own
+    severityLevel (1 severe warning, 2 warning, 3 alert, 4 no longer in
+    force, per the Environment Agency's API reference). Until 12 September
+    2026 this vein was one fact, the combined count, which kept it under
+    STARVE_MIN_FACTS and out of rotation for ever; the split is the second
+    comparable figure SESSION_SUMMARY.md said would bring it back. Items
+    with no usable severityLevel fall back to the old single fact rather
+    than publishing two confident zeros over a changed schema."""
+    levels = []
+    for i in items:
+        lvl = i.get('severityLevel')
+        try:
+            levels.append(int(lvl))
+        except (TypeError, ValueError):
+            pass
     active = [i for i in items if 'no longer in force' not in (i.get('description') or '').lower()
               and (i.get('severity') or '').lower() != 'warning no longer in force']
-    url = 'https://environment.data.gov.uk/flood-monitoring/id/floods?county=London'
-    facts = [
-        fact(str(len(active)), 'Active flood warnings or alerts',
-             'Environment Agency', url),
+    if len(levels) != len(items):
+        return [fact(str(len(active)), 'Active flood warnings or alerts',
+                     'Environment Agency', url)]
+    warnings = sum(1 for l in levels if l in (1, 2))
+    alerts = sum(1 for l in levels if l == 3)
+    return [
+        fact(str(warnings), 'Warnings in force', 'Environment Agency', url,
+             pair='flood_gap'),
+        fact(str(alerts), 'Alerts in force', 'Environment Agency', url,
+             pair='flood_gap'),
     ]
-    return facts, None
+
+
+def harvest_flood():
+    d = get_json(FLOOD_URL)
+    if not isinstance(d, dict) or 'items' not in d:
+        return [], 'flood-monitoring fetch failed'
+    return flood_facts(d['items']), None
 
 
 # Curated London river gauges with a published typical range, found 29 August
@@ -607,38 +647,109 @@ def harvest_river_levels():
     return facts, None
 
 
+def _shift_month(ym, back):
+    """"2026-07" shifted `back` calendar months: _shift_month("2026-07", 1)
+    is "2026-06", _shift_month("2026-01", 1) is "2025-12". Real month
+    arithmetic, replacing the old `today - 30 days * back` walk, which
+    could land on the same month twice or skip one across a 31-day month."""
+    y, m = (int(x) for x in ym.split('-'))
+    idx = y * 12 + (m - 1) - back
+    return f'{idx // 12:04d}-{idx % 12 + 1:02d}'
+
+
+def _readable_month(ym):
+    return datetime.strptime(ym, '%Y-%m').strftime('%B')
+
+
+def _police_month(lat, lng, ym):
+    url = f'https://data.police.uk/api/crimes-street/all-crime?lat={lat}&lng={lng}&date={ym}'
+    d = get_json(url)
+    return d if isinstance(d, list) else None
+
+
 def _latest_police_month(lat, lng):
     """The API lags roughly two months; walk backwards from today until a
     non-empty response comes back, rather than guessing the lag. Returns
     (year_month, records) or (None, None) if nothing populated in 4 tries."""
-    today = datetime.now(timezone.utc)
+    this_month = datetime.now(timezone.utc).strftime('%Y-%m')
     for back in range(1, 5):
-        m = (today.replace(day=1) - timedelta(days=30 * back))
-        ym = m.strftime('%Y-%m')
-        url = f'https://data.police.uk/api/crimes-street/all-crime?lat={lat}&lng={lng}&date={ym}'
-        d = get_json(url)
-        if isinstance(d, list) and d:
+        ym = _shift_month(this_month, back)
+        d = _police_month(lat, lng, ym)
+        if d:
             return ym, d
     return None, None
 
 
-def harvest_police():
-    # 1-mile radius around central London (Trafalgar Square).
-    ym, d = _latest_police_month(51.5074, -0.1278)
-    if ym is None:
-        return [], 'no populated month found in the last 4 tried'
+def _pct_change(now, before):
+    """Signed whole-percent change as a card value: "+7%", "−3%", "0%".
+    A typographic minus, not a hyphen — this string reaches a reader on
+    the card and in the alt text. None when there is no base to divide by."""
+    if not before:
+        return None
+    pct = round((now - before) / before * 100)
+    if pct > 0:
+        return f'+{pct}%'
+    if pct < 0:
+        return f'−{abs(pct)}%'
+    return '0%'
+
+
+def _category_name(cat):
+    """data.police.uk's slug ("other-theft", "anti-social-behaviour") as
+    label prose. "Anti-social behaviour" keeps its hyphen, since the slug
+    carries two of them and only the first is a real word-join."""
+    if cat == 'anti-social-behaviour':
+        return 'Anti-social behaviour'
+    return cat.replace('-', ' ').capitalize()
+
+
+CENTRAL_NOTE = 'Within a mile of Trafalgar Square'
+CENTRAL_TOP_N = 4
+
+
+def central_facts(records, prev_records, ym, url):
+    """The central-London card's facts from one month's records and the
+    month before. Pure: no network, so test_london_index_harvest.py can
+    pin the shapes. Two card shapes come out of one month's data, where
+    until 12 September 2026 there was exactly one (total + most common),
+    posted byte-identical four times in six days because the data changes
+    monthly and nothing else about the card could:
+      - unpaired: the total, the most common category, and the change on
+        the previous month (when that month is available)
+      - "central_top": the CENTRAL_TOP_N most-reported categories, ranked,
+        a whole card on its own."""
     cats = {}
-    for r in d:
+    for r in records:
         cats[r['category']] = cats.get(r['category'], 0) + 1
-    top = max(cats.items(), key=lambda kv: kv[1])
-    url = f'https://data.police.uk/api/crimes-street/all-crime?lat=51.5074&lng=-0.1278&date={ym}'
+    ranked = sorted(cats.items(), key=lambda kv: -kv[1])
+    top = ranked[0]
     facts = [
-        fact(f'{len(d):,}', 'Within a mile of central London',
+        fact(f'{len(records):,}', 'Within a mile of central London',
              'data.police.uk', url, period=ym),
-        fact(f'{top[1]:,}', f'Most common: {top[0].replace("-", " ").capitalize()}',
+        fact(f'{top[1]:,}', f'Most common: {_category_name(top[0])}',
              'data.police.uk', url, period=ym),
     ]
-    return facts, None
+    if prev_records:
+        change = _pct_change(len(records), len(prev_records))
+        if change is not None:
+            prev_ym = _shift_month(ym, 1)
+            facts.append(fact(change, f'Change since {_readable_month(prev_ym)}',
+                              'data.police.uk', url, period=ym))
+    for cat, n in ranked[:CENTRAL_TOP_N]:
+        facts.append(fact(f'{n:,}', _category_name(cat), 'data.police.uk', url,
+                          period=ym, pair='central_top', context_note=CENTRAL_NOTE))
+    return facts
+
+
+def harvest_police():
+    # 1-mile radius around central London (Trafalgar Square).
+    lat, lng = 51.5074, -0.1278
+    ym, d = _latest_police_month(lat, lng)
+    if ym is None:
+        return [], 'no populated month found in the last 4 tried'
+    prev = _police_month(lat, lng, _shift_month(ym, 1))
+    url = f'https://data.police.uk/api/crimes-street/all-crime?lat={lat}&lng={lng}&date={ym}'
+    return central_facts(d, prev, ym, url), None
 
 
 # Eight boroughs spanning the compass, each a real civic-building address -
@@ -661,9 +772,97 @@ POLICE_BOROUGHS = {
     'Bromley': (51.4064739, 0.0180213),
 }
 
+# ⚠️ Every borough figure is a one-mile sample around the town hall, not the
+# borough's total, and until 12 September 2026 no card said so: "Most:
+# Camden 3,179" under "Reported crime" read as Camden's monthly total. This
+# note rides every borough fact so compose() puts it in the card's footnote.
+BOROUGH_NOTE = ('Within a mile of each town hall; eight boroughs sampled: '
+                + ', '.join(POLICE_BOROUGHS))
+BOROUGH_TOP_N = 4
+# The categories worth a "which borough had the most" line, in the order a
+# reader expects them. Anti-social behaviour and other-theft are left out
+# on purpose: the first is not a crime in the recorded-crime sense and the
+# second is a catch-all whose name explains nothing on a card.
+BOROUGH_TYPE_CATEGORIES = ('violent-crime', 'shoplifting', 'vehicle-crime',
+                           'burglary', 'bicycle-theft', 'robbery')
+BOROUGH_TYPES_N = 4
+
+
+def borough_facts(counts, prev_counts, cats, ym, url):
+    """The borough card's facts from this month's per-borough counts, the
+    previous month's, and each borough's per-category counts. Pure, like
+    central_facts(). Four card shapes from one month's data, where until
+    12 September 2026 there were two (the gap, and a near-tie when one
+    existed) and the gap alone was posted five times in five days, since
+    the busiest and quietest of eight fixed boroughs do not change within a
+    month:
+      - "police_gap": most and fewest, as before
+      - "police_heat": a genuine near-tie, when one exists, as before
+      - "police_top": the BOROUGH_TOP_N busiest, ranked, picked whole
+      - "police_change": the biggest rise and the biggest fall (or the
+        smallest rise, when every borough rose) on the previous month
+      - "police_types_top": for each of BOROUGH_TYPE_CATEGORIES, the
+        borough with the most of it, ranked by count, picked whole
+    Every fact carries BOROUGH_NOTE."""
+    note = BOROUGH_NOTE
+    ranked = sorted(counts.items(), key=lambda kv: -kv[1])
+    busiest, quietest = ranked[0], ranked[-1]
+    facts = [
+        fact(f'{busiest[1]:,}', f'Most: {busiest[0]}',
+             'data.police.uk', url, period=ym, pair='police_gap', context_note=note),
+        fact(f'{quietest[1]:,}', f'Fewest: {quietest[0]}',
+             'data.police.uk', url, period=ym, pair='police_gap', context_note=note),
+    ]
+    # Dead-heat: two of the curated boroughs whose crime counts happen to
+    # land on nearly the same number, out of the whole set rather than just
+    # the busiest/quietest extremes above.
+    heat = dead_heat(list(counts.items()))
+    if heat:
+        name_a, _, name_b, _ = heat
+        for name in (name_a, name_b):
+            facts.append(fact(f'{counts[name]:,}', name,
+                               'data.police.uk', url, period=ym,
+                               pair='police_heat', context_note=note))
+    for name, n in ranked[:BOROUGH_TOP_N]:
+        facts.append(fact(f'{n:,}', name, 'data.police.uk', url, period=ym,
+                          pair='police_top', context_note=note))
+    if prev_counts:
+        prev_month = _readable_month(_shift_month(ym, 1))
+        changes = [(name, (n - prev_counts[name]) / prev_counts[name])
+                   for name, n in counts.items()
+                   if prev_counts.get(name)]
+        if len(changes) >= 2:
+            changes.sort(key=lambda t: -t[1])
+            rise_name, rise = changes[0]
+            fall_name, fall = changes[-1]
+            facts.append(fact(_pct_change(counts[rise_name], prev_counts[rise_name]),
+                              f'Biggest rise since {prev_month}: {rise_name}',
+                              'data.police.uk', url, period=ym,
+                              pair='police_change', context_note=note))
+            fall_label = 'Biggest fall' if fall < 0 else 'Smallest rise'
+            facts.append(fact(_pct_change(counts[fall_name], prev_counts[fall_name]),
+                              f'{fall_label} since {prev_month}: {fall_name}',
+                              'data.police.uk', url, period=ym,
+                              pair='police_change', context_note=note))
+    leaders = []
+    for cat in BOROUGH_TYPE_CATEGORIES:
+        per = {name: c.get(cat, 0) for name, c in cats.items()}
+        if not per or max(per.values()) == 0:
+            continue
+        name = max(per.items(), key=lambda kv: kv[1])[0]
+        leaders.append((cat, name, per[name]))
+    leaders.sort(key=lambda t: -t[2])
+    for cat, name, n in leaders[:BOROUGH_TYPES_N]:
+        facts.append(fact(f'{n:,}', f'{_category_name(cat)}: {name}',
+                          'data.police.uk', url, period=ym,
+                          pair='police_types_top', context_note=note))
+    return facts
+
 
 def harvest_police_boroughs():
     counts = {}
+    cats = {}
+    prev_counts = {}
     failed = []
     ym_used = None
     for name, (lat, lng) in POLICE_BOROUGHS.items():
@@ -679,29 +878,23 @@ def harvest_police_boroughs():
             failed.append(f'{name} (only {ym} populated, rest are {ym_used})')
             continue
         counts[name] = len(d)
+        per = {}
+        for r in d:
+            per[r['category']] = per.get(r['category'], 0) + 1
+        cats[name] = per
+        prev = _police_month(lat, lng, _shift_month(ym, 1))
+        if prev:
+            prev_counts[name] = len(prev)
 
     if len(counts) < 2:
         return [], f'fewer than 2 comparable boroughs; failed: {failed}'
+    # A change pair over a partial previous month would compare eight
+    # boroughs against however many happened to answer; all or none.
+    if len(prev_counts) != len(counts):
+        prev_counts = {}
 
-    busiest = max(counts.items(), key=lambda kv: kv[1])
-    quietest = min(counts.items(), key=lambda kv: kv[1])
     url = 'https://data.police.uk/api/crimes-street/all-crime?lat={lat}&lng={lng}&date={date}'
-    facts = [
-        fact(f'{busiest[1]:,}', f'Most: {busiest[0]}',
-             'data.police.uk', url, period=ym_used, pair='police_gap'),
-        fact(f'{quietest[1]:,}', f'Fewest: {quietest[0]}',
-             'data.police.uk', url, period=ym_used, pair='police_gap'),
-    ]
-    # Dead-heat: two of the curated boroughs whose crime counts happen to
-    # land on nearly the same number, out of the whole set rather than just
-    # the busiest/quietest extremes above.
-    heat = dead_heat(list(counts.items()))
-    if heat:
-        name_a, _, name_b, _ = heat
-        for name in (name_a, name_b):
-            facts.append(fact(f'{counts[name]:,}', name,
-                               'data.police.uk', url, period=ym_used,
-                               pair='police_heat'))
+    facts = borough_facts(counts, prev_counts, cats, ym_used, url)
     if failed:
         facts[0]['note'] = f'{len(failed)} of {len(POLICE_BOROUGHS)} curated boroughs unusable: {failed}'
     return facts, None
@@ -1398,6 +1591,279 @@ def harvest_daily_footfall():
     return facts, None
 
 
+
+# --- Stop and search (data.police.uk, Metropolitan Police, monthly) --------
+STOPS_NOTE = 'Metropolitan Police, whole force area'
+
+
+def stop_search_facts(records, ym, url):
+    """One month of the Met's stop and search, from data.police.uk's own
+    records: how many, how many ended in arrest, how many in no further
+    action, how many were for drugs. All four share the pair "stops_all"
+    (see SELECT_PROMPT's "_all" rule): any 2 to 4 make a card, under a fixed
+    opener."""
+    total = len(records)
+    arrests = sum(1 for r in records if (r.get('outcome') or '') == 'Arrest')
+    nfa = sum(1 for r in records if (r.get('outcome') or '').lower().startswith('a no further action'))
+    drugs = sum(1 for r in records if (r.get('object_of_search') or '') == 'Controlled drugs')
+    weapons = sum(1 for r in records if (r.get('object_of_search') or '') == 'Offensive weapons')
+    mk = lambda v, label: fact(f'{v:,}', label, 'data.police.uk', url, period=ym,
+                               pair='stops_all', context_note=STOPS_NOTE)
+    return [mk(total, 'Searches'), mk(arrests, 'Ended in arrest'),
+            mk(nfa, 'No further action'), mk(drugs, 'For drugs'),
+            mk(weapons, 'For weapons')]
+
+
+def harvest_stop_search():
+    this_month = datetime.now(timezone.utc).strftime('%Y-%m')
+    for back in range(1, 5):
+        ym = _shift_month(this_month, back)
+        url = f'https://data.police.uk/api/stops-force?force=metropolitan&date={ym}'
+        d = get_json(url, timeout=60)
+        if isinstance(d, list) and len(d) >= 1000:
+            # The Met records five figures of searches a month; a short
+            # list is a month still being loaded, not a quiet month.
+            return stop_search_facts(d, ym, url), None
+    return [], 'no populated stop-and-search month in the last 4 tried'
+
+
+# --- House prices (HM Land Registry, UK House Price Index, monthly) --------
+# The 32 boroughs plus the City, as the index's own region slugs. Four were
+# verified live on 12 September 2026 (camden, kensington-and-chelsea,
+# city-of-westminster, barking-and-dagenham); the rest follow the same
+# lowercase-hyphenated local-authority naming and are checked on every run:
+# a slug that answers nothing is logged, and under HPI_MIN_BOROUGHS answering
+# the borough facts are withheld rather than ranking a partial London.
+HPI_BOROUGHS = {
+    'Barking and Dagenham': 'barking-and-dagenham', 'Barnet': 'barnet',
+    'Bexley': 'bexley', 'Brent': 'brent', 'Bromley': 'bromley', 'Camden': 'camden',
+    'City of London': 'city-of-london', 'Croydon': 'croydon', 'Ealing': 'ealing',
+    'Enfield': 'enfield', 'Greenwich': 'greenwich', 'Hackney': 'hackney',
+    'Hammersmith and Fulham': 'hammersmith-and-fulham', 'Haringey': 'haringey',
+    'Harrow': 'harrow', 'Havering': 'havering', 'Hillingdon': 'hillingdon',
+    'Hounslow': 'hounslow', 'Islington': 'islington',
+    'Kensington and Chelsea': 'kensington-and-chelsea',
+    'Kingston upon Thames': 'kingston-upon-thames', 'Lambeth': 'lambeth',
+    'Lewisham': 'lewisham', 'Merton': 'merton', 'Newham': 'newham',
+    'Redbridge': 'redbridge', 'Richmond upon Thames': 'richmond-upon-thames',
+    'Southwark': 'southwark', 'Sutton': 'sutton', 'Tower Hamlets': 'tower-hamlets',
+    'Waltham Forest': 'waltham-forest', 'Wandsworth': 'wandsworth',
+    'Westminster': 'city-of-westminster',
+}
+HPI_MIN_BOROUGHS = 30
+HPI_TOP_N = 4
+HPI_SOURCE = 'HM Land Registry (UK House Price Index)'
+HPI_PAGE = 'https://landregistry.data.gov.uk/app/ukhpi'
+HPI_NOTE = 'Land Registry index averages, all property types; recent months are provisional'
+
+
+def _hpi_month(slug, ym):
+    d = get_json(f'https://landregistry.data.gov.uk/data/ukhpi/region/{slug}/month/{ym}.json')
+    if not isinstance(d, dict):
+        return None
+    topic = (d.get('result') or {}).get('primaryTopic') if isinstance(d.get('result'), dict) else None
+    if isinstance(topic, dict) and isinstance(topic.get('averagePrice'), (int, float)):
+        return topic
+    return None
+
+
+def _pounds(v):
+    return f'£{int(round(v)):,}'
+
+
+def _signed_pct(v):
+    """A published percentage as a card value, one decimal, typographic
+    minus: "+1.0%", "−2.5%"."""
+    if v is None:
+        return None
+    return (f'+{v:.1f}%' if v > 0 else f'−{abs(v):.1f}%' if v < 0 else '0.0%')
+
+
+def house_price_facts(london, boroughs, ym, url=HPI_PAGE):
+    """`london` is the London region's month record, `boroughs` a dict of
+    borough name -> month record (however many answered). Shapes:
+      - unpaired: London's average price, its change on a year earlier and
+        on the month
+      - "hp_types_gap": the average flat against the average detached house
+      - "hp_gap": the most and least expensive boroughs
+      - "hp_top": the HPI_TOP_N most expensive boroughs, ranked
+      - "hp_change": the biggest annual rise and the biggest annual fall (or
+        smallest rise) by borough
+    The borough shapes appear only when at least HPI_MIN_BOROUGHS answered."""
+    mk = lambda v, label, pair=None: fact(v, label, HPI_SOURCE, url, period=ym,
+                                          pair=pair, context_note=HPI_NOTE)
+    facts = [mk(_pounds(london['averagePrice']), 'Average price, London')]
+    annual = _signed_pct(london.get('percentageAnnualChange'))
+    if annual:
+        facts.append(mk(annual, 'Change on a year earlier'))
+    monthly = _signed_pct(london.get('percentageChange'))
+    if monthly:
+        facts.append(mk(monthly, 'Change on the month'))
+    flat, det = london.get('averagePriceFlatMaisonette'), london.get('averagePriceDetached')
+    if flat and det:
+        facts.append(mk(_pounds(flat), 'Average flat, London', 'hp_types_gap'))
+        facts.append(mk(_pounds(det), 'Average detached house, London', 'hp_types_gap'))
+    if len(boroughs) >= HPI_MIN_BOROUGHS:
+        ranked = sorted(boroughs.items(), key=lambda kv: -kv[1]['averagePrice'])
+        facts.append(mk(_pounds(ranked[0][1]['averagePrice']),
+                        f'Most expensive: {ranked[0][0]}', 'hp_gap'))
+        facts.append(mk(_pounds(ranked[-1][1]['averagePrice']),
+                        f'Least expensive: {ranked[-1][0]}', 'hp_gap'))
+        for name, rec in ranked[:HPI_TOP_N]:
+            facts.append(mk(_pounds(rec['averagePrice']), name, 'hp_top'))
+        changes = [(name, rec['percentageAnnualChange']) for name, rec in boroughs.items()
+                   if isinstance(rec.get('percentageAnnualChange'), (int, float))]
+        if len(changes) >= HPI_MIN_BOROUGHS:
+            changes.sort(key=lambda t: -t[1])
+            (rise_name, rise), (fall_name, fall) = changes[0], changes[-1]
+            facts.append(mk(_signed_pct(rise), f'Biggest rise on a year earlier: {rise_name}',
+                            'hp_change'))
+            fall_label = 'Biggest fall' if fall < 0 else 'Smallest rise'
+            facts.append(mk(_signed_pct(fall), f'{fall_label} on a year earlier: {fall_name}',
+                            'hp_change'))
+    return facts
+
+
+def harvest_house_prices():
+    this_month = datetime.now(timezone.utc).strftime('%Y-%m')
+    london = ym = None
+    for back in range(1, 6):
+        ym = _shift_month(this_month, back)
+        london = _hpi_month('london', ym)
+        if london:
+            break
+    if not london:
+        return [], 'no published UK HPI month for London in the last 5 tried'
+    boroughs = {}
+    failed = []
+    for name, slug in HPI_BOROUGHS.items():
+        rec = _hpi_month(slug, ym)
+        if rec:
+            boroughs[name] = rec
+        else:
+            failed.append(name)
+    facts = house_price_facts(london, boroughs, ym)
+    if failed:
+        facts[0]['note'] = (f'{len(failed)} of {len(HPI_BOROUGHS)} boroughs did not answer '
+                            f'for {ym}: {failed}')
+    return facts, None
+
+
+# --- Roadworks and disruptions on TfL roads (live) -------------------------
+ROADS_URL = 'https://api.tfl.gov.uk/Road/all/Disruption'
+ROADS_PAGE = 'https://tfl.gov.uk/traffic/status'
+ROADS_NOTE = 'The Transport for London Road Network (red routes), not every London street'
+SERIOUS = {'moderate', 'serious', 'severe'}
+
+
+def road_facts(items, url=ROADS_PAGE):
+    """Live: everything TfL currently lists as a disruption on its own
+    roads, how many it rates moderate or worse, and how many are planned
+    works. Pair "roads_all" (see SELECT_PROMPT's "_all" rule)."""
+    total = len(items)
+    serious = sum(1 for i in items if (i.get('severity') or '').lower() in SERIOUS)
+    works = sum(1 for i in items if (i.get('category') or '') == 'Works')
+    mk = lambda v, label: fact(f'{v:,}', label, 'TfL Road disruptions', url,
+                               pair='roads_all', context_note=ROADS_NOTE)
+    return [mk(total, 'Disruptions on TfL roads'), mk(serious, 'Moderate or worse'),
+            mk(works, 'Planned roadworks')]
+
+
+def harvest_road_works():
+    d = tfl_get_json(ROADS_URL)
+    if not isinstance(d, list):
+        return [], 'Road disruption fetch failed'
+    return road_facts(d), None
+
+
+# --- Animal rescues by the London Fire Brigade (London Datastore, monthly) --
+ANIMALS_URL = ('https://data.london.gov.uk/download/2ogkn/01007433-55c2-4b8a-b799-626d9e3bc284/'
+               'Animal%20Rescue%20incidents%20attended%20by%20LFB%20from%20Jan%202009.csv.xlsx')
+ANIMALS_PAGE = 'https://data.london.gov.uk/dataset/animal-rescue-incidents-attended-by-lfb'
+ANIMALS_SOURCE = 'London Datastore (LFB animal rescues)'
+ANIMALS_NOTE = 'London Fire Brigade callouts to animals trapped or in distress'
+ANIMALS_TOP_N = 4
+ANIMALS_MIN_ROWS = 10
+# The file's AnimalGroupParent is singular ("Cat", "Bird"); a count wants
+# the plural. Anything not listed (the file's "Unknown - ..." groups among
+# them) is left out of the ranked list rather than pluralised by rule.
+ANIMAL_PLURALS = {
+    'Cat': 'Cats', 'Dog': 'Dogs', 'Bird': 'Birds', 'Fox': 'Foxes', 'Horse': 'Horses',
+    'Deer': 'Deer', 'Squirrel': 'Squirrels', 'Rabbit': 'Rabbits', 'Hamster': 'Hamsters',
+    'Cow': 'Cows', 'Sheep': 'Sheep', 'Snake': 'Snakes', 'Ferret': 'Ferrets', 'Goat': 'Goats',
+    'Hedgehog': 'Hedgehogs', 'Lizard': 'Lizards', 'Tortoise': 'Tortoises', 'Fish': 'Fish',
+    'Bull': 'Bulls', 'Pigeon': 'Pigeons', 'Lamb': 'Lambs', 'Budgie': 'Budgies', 'Rat': 'Rats',
+}
+
+
+def animal_facts(rows, ym, url=ANIMALS_PAGE):
+    """`rows` are dicts for one month (keys as the file's header names).
+    Shapes: the month's total and the borough with the most (unpaired), the
+    ANIMALS_TOP_N most-rescued kinds of animal ranked ("animals_top"), and
+    the brigade's own notional cost of it all (unpaired)."""
+    mk = lambda v, label, pair=None: fact(v, label, ANIMALS_SOURCE, url, period=ym,
+                                          pair=pair, context_note=ANIMALS_NOTE)
+    facts = [mk(f'{len(rows):,}', 'Animals rescued')]
+    boroughs = {}
+    kinds = {}
+    cost = 0.0
+    for r in rows:
+        b = (r.get('Borough') or '').strip()
+        if b:
+            boroughs[b] = boroughs.get(b, 0) + 1
+        k = (r.get('AnimalGroupParent') or '').strip()
+        if k in ANIMAL_PLURALS:
+            kinds[k] = kinds.get(k, 0) + 1
+        c = r.get('IncidentNotionalCost(£)')
+        if isinstance(c, (int, float)):
+            cost += c
+    if boroughs:
+        name, n = max(boroughs.items(), key=lambda kv: kv[1])
+        facts.append(mk(f'{n:,}', f'Most rescues: {name.title()}'))
+    for k, n in sorted(kinds.items(), key=lambda kv: -kv[1])[:ANIMALS_TOP_N]:
+        facts.append(mk(f'{n:,}', ANIMAL_PLURALS[k], 'animals_top'))
+    if cost:
+        facts.append(mk(_pounds(cost), 'Notional cost to the brigade'))
+    return facts
+
+
+def harvest_lfb_animals():
+    with tempfile.TemporaryDirectory() as td:
+        path = Path(td) / 'animals.xlsx'
+        result = subprocess.run(['curl', '-sS', '-L', '--max-time', '60', '-o', str(path), ANIMALS_URL],
+                                capture_output=True)
+        if result.returncode != 0 or not path.exists():
+            return [], 'animal-rescue download failed'
+        try:
+            import openpyxl
+        except ImportError:
+            return [], 'openpyxl not installed'
+        wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+        ws = wb[wb.sheetnames[0]]
+        it = ws.iter_rows(values_only=True)
+        header = [str(h).strip() if h is not None else '' for h in next(it)]
+        if 'DateTimeOfCall' not in header or 'AnimalGroupParent' not in header:
+            return [], f'animal-rescue sheet header changed: {header[:8]}'
+        by_month = {}
+        for row in it:
+            rec = dict(zip(header, row))
+            when = rec.get('DateTimeOfCall')
+            if not isinstance(when, datetime):
+                continue
+            by_month.setdefault(when.strftime('%Y-%m'), []).append(rec)
+    # The newest month that is not the one we are in: the file is a monthly
+    # drop of whole months, and a partial month would read as a quiet one.
+    this_month = datetime.now(timezone.utc).strftime('%Y-%m')
+    months = sorted(m for m in by_month if m < this_month)
+    if not months:
+        return [], 'no complete month in the animal-rescue file'
+    ym = months[-1]
+    rows = by_month[ym]
+    if len(rows) < ANIMALS_MIN_ROWS:
+        return [], f'only {len(rows)} animal rescues in {ym}; refusing a partial month'
+    return animal_facts(rows, ym), None
+
+
 HARVESTERS = {
     'tfl_bikes': harvest_tfl_bikes,
     # tfl_crowding PAUSED 31 August 2026, Chris's call: no more Tube posts
@@ -1426,6 +1892,13 @@ HARVESTERS = {
     'cycle_hires': harvest_cycle_hires,
     'laqn': harvest_laqn,
     'dcms_museums': harvest_dcms_museums,
+    # Added 12 September 2026, the morning after the same crime card went
+    # out twice in five hours: four veins whose figures change on their own
+    # cadence, none needing a key. See each harvester's own comment.
+    'stop_search': harvest_stop_search,
+    'house_prices': harvest_house_prices,
+    'road_works': harvest_road_works,
+    'lfb_animals': harvest_lfb_animals,
 }
 
 

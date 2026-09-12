@@ -131,7 +131,15 @@ _VEIN_RULE_SINGLE = """- SINGLE VEIN ONLY, for now. Pick 2 to 4 facts from ONE v
   whichever is the sharper unit for today and leave the rest for another
   day. A vein with nothing in PAIRS is still a legitimate pick on its own
   (2-4 of its facts), never padded out with a fact from a different vein to
-  reach a count."""
+  reach a count.
+  - "_all": every fact of that vein shares the tag, meaning any 2 to 4 of
+    them make a card together; there is no ranking or contrast to keep
+    whole. Prefer the ones that read as one idea (a total and what happened
+    to it, say) over four unrelated counts.
+- Vein "house_prices" facts without a pair (London's average, its change on
+  a year earlier, its change on the month) take an opener saying "House
+  prices" or "London house prices" — nothing about "the market", and no
+  adjective about direction; the values say which way it moved."""
 
 _VEIN_RULE_CROSS = """- APPLES TO APPLES ONLY. Every pick's value must be the same KIND of
   measurement as the others — not just the same numeric shape (a percentage,
@@ -289,6 +297,23 @@ FIXED_OPENERS = {
     # same redundancy the SELECT_PROMPT rule against restating the period
     # already forbids for every other fixed opener above.
     ('station_usage', 'usage_top'): {'emoji': '🚇', 'text': 'Busiest Tube stations'},
+    # Added 12 September 2026 with the new borough card shapes and the four
+    # new veins (see london_index_harvest.py). Every pair a vein can offer
+    # gets a fixed title, for the reliability reason above: a shape that
+    # recurs monthly should read as the same feature each time.
+    ('police_boroughs', 'police_heat'): {'emoji': '🚓', 'text': 'Reported crime'},
+    ('police_boroughs', 'police_top'): {'emoji': '🚓', 'text': 'Reported crime'},
+    ('police_boroughs', 'police_change'): {'emoji': '🚓', 'text': 'Reported crime'},
+    ('police_boroughs', 'police_types_top'): {'emoji': '🚓', 'text': 'Reported crime, by type'},
+    ('police', 'central_top'): {'emoji': '🚓', 'text': 'Reported crime, central London'},
+    ('stop_search', 'stops_all'): {'emoji': '🚓', 'text': 'Stop and search'},
+    ('house_prices', 'hp_types_gap'): {'emoji': '🏠', 'text': 'House prices'},
+    ('house_prices', 'hp_gap'): {'emoji': '🏠', 'text': 'House prices, by borough'},
+    ('house_prices', 'hp_top'): {'emoji': '🏠', 'text': 'Most expensive boroughs'},
+    ('house_prices', 'hp_change'): {'emoji': '🏠', 'text': 'House prices, by borough'},
+    ('road_works', 'roads_all'): {'emoji': '🚧', 'text': 'Roadworks and disruptions'},
+    ('lfb_animals', 'animals_top'): {'emoji': '🚒', 'text': 'Animal rescues by the fire brigade'},
+    ('flood', 'flood_gap'): {'emoji': '🌊', 'text': 'Flood warnings and alerts'},
 }
 
 

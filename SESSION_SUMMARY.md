@@ -562,3 +562,133 @@ flags. Check the argv, not the tests.
     by mutation: removing the pool-floor guard, the `STARVE_MIN_FACTS`
     check, and the tie-break's third sort key were each confirmed to fail
     the suite and pass again on restore.
+
+## Session — 12 September 2026: the same card twice, and where the variety went
+
+Chris flagged two posts five hours apart on 11 September that were the same
+card, line for line (bsky.app/.../3mvahvdld5f27 at 12:34 BST and
+.../3mvayox7dnd24 at 17:34): "Reported crime / July 2026 / Most: Camden
+3,179 / Fewest: Bromley 449". Then: "Every time that card is posted, it's
+Camden and Bromley", "Other theft always seems to be the most common", and
+"We need much more variety".
+
+**Measured, from `card_history.jsonl`: of 44 cards posted since 30 August,
+34 were distinct.** The two crime cards were 9 of the last 12 posts, and
+Camden/Bromley had already gone out twice in one day on 9 September. And
+against the live pool harvested that morning, **22 of 31 facts had already
+been posted at exactly that value**: station_usage and dcms_museums are
+annual, police and police_boroughs monthly, cycle_hires dated 31 July,
+daily_footfall nine days lagged. Only tfl_bikes and laqn change between
+runs. Four slots a day over that pool cannot help repeating.
+
+### Why the guard failed
+The 12:30 run's log: busiest-station veins on cooldown (87h of 96h), DCMS on
+cooldown, and `flood`, `laqn`, `river_levels` all failed (the Environment
+Agency's API was timing out, and still was on the 12th). Four veins left.
+The only fact-level guard was `AVOID_IDS`, a soft "do not pick if a
+reasonable alternative exists" the model ignored at 12:30 and again at
+17:30. Nothing compared the finished card with the history. The 8
+September fix (`248da73`) had added a 4-day cooldown for dcms_museums and
+lengthened the station one, but each cooldown is a hardcoded group, and
+police_boroughs had none.
+
+### The fix, three layers (`e7c4fe2`)
+1. **Spent facts.** `select()` reads `card_history.jsonl` and drops every
+   fact whose `(label, value)` is already on a posted card, and the whole
+   pair group with it (a ranked list missing its top entry is a wrong card,
+   not a shorter one). A live vein's values change every run, so it is
+   never spent; a monthly vein's facts are spent for the rest of the month.
+   The history, never the state file, is the record: it holds what actually
+   posted. If nothing pickable survives, `select()` raises `NothingFresh`
+   and the poster **skips the slot at exit 0**, with a log line saying so.
+   A missed slot is the lesser fault, and the one this bot had never once
+   chosen over a repeat.
+2. **General cooldown.** Any vein that led within `GENERAL_COOLDOWN_HOURS`
+   (20) is withheld, on top of the two 4-day groups, with the usual
+   abandonment rule. Without it the spent filter leaves the two live veins
+   alternating three times a day with fresh numbers, which to a reader is
+   the same card.
+3. **The last line.** `london_index_post.py` refuses, line for line, any
+   card whose `card_lines_key()` is already in the history, whatever the
+   selector did. The filter should make it unreachable; this is what says
+   so if a `--only` run or a future path ever isn't.
+⚠️ The spent filter runs FIRST, before the cooldowns: a cooldown that is
+abandoned "because nothing else is pickable" must not be abandoned on the
+strength of facts about to be dropped anyway. 20 new tests in
+`test_london_index_select.py` (36 total); the two real cards are the
+fixtures.
+
+### Variety: four card shapes from one month of borough crime
+`harvest_police_boroughs()` used to produce two facts (the gap) and, on a
+lucky month, a near-tie. Now `borough_facts()` (pure, tested) produces
+five shapes: the gap; the near-tie; **`police_top`** (the four busiest,
+ranked); **`police_change`** (biggest rise and biggest fall, or smallest
+rise when every borough rose, on the previous month, which is fetched too);
+and **`police_types_top`** (the borough with the most of each of violent
+crime, shoplifting, vehicle crime, burglary, bicycle theft and robbery,
+ranked by count, top four). Live on 12 September: Hackney +20 percent and
+Newham +2 percent since June; violent crime Camden 544, shoplifting
+Camden 411, vehicle crime Newham 123, robbery Camden 98 (Camden three
+times on one card is the sample's truth, not a fault: it is the biggest of
+the eight, and the footnote says what was sampled).
+⚠️ **Every borough fact now carries `BOROUGH_NOTE` as its footnote**:
+"Within a mile of each town hall; eight boroughs sampled: …". Until now
+"Most: Camden 3,179" under "Reported crime" read as Camden's monthly
+total, and it is a one-mile sample around the town hall. The card never
+said so.
+`harvest_police()` (central London) gained "Change since June" (+6 percent)
+and **`central_top`**, the four most-reported categories ranked, so the
+central card is no longer only "4,728 / Other theft 1,097" for a month.
+Both fixed-opener maps grew to match; a shape that recurs monthly should
+carry the same title each time.
+⚠️ `_latest_police_month()` used to walk back `30 days × n` from the first
+of the month, which can land on one month twice; it is real month
+arithmetic now (`_shift_month`).
+
+### Four new veins, none needing a key
+| vein | source | cadence | shapes |
+|---|---|---|---|
+| `stop_search` | data.police.uk, `stops-force?force=metropolitan` | monthly | searches, arrests, no further action, for drugs, for weapons (`stops_all`) |
+| `house_prices` | HM Land Registry UK HPI, linked-data JSON | monthly, ~2 months behind | London average and changes; flat vs detached; all 33 boroughs: most/least expensive, top four, biggest annual rise/fall |
+| `road_works` | TfL `Road/all/Disruption` | live | disruptions on TfL roads, moderate or worse, planned works (`roads_all`) |
+| `lfb_animals` | London Datastore, LFB animal rescues XLSX (2.9 MB) | monthly | rescues, borough with most, kinds of animal ranked, notional cost |
+- The prompt gained an **`_all`** pair rule: every fact of the vein shares
+  the tag, any 2 to 4 make a card, no order to keep; it exists so a fixed
+  opener can attach to a vein with no natural gap or ranking.
+- `house_prices` refuses the borough shapes under `HPI_MIN_BOROUGHS` (30)
+  answering, and `_hpi_month()` reads an unpublished month (the API answers
+  `result: "elda:missingEndpoint"`, a bare string) as no data. The borough
+  slugs are the index's own local-authority names; four were verified live
+  and the rest are checked on every run, with any that fail logged.
+- `lfb_animals` takes the newest month in the file that is not the current
+  calendar month, and refuses under `ANIMALS_MIN_ROWS` (10). Plurals come
+  from `ANIMAL_PLURALS`; a kind not in it (the file's "Unknown - …"
+  groups) never reaches the ranked list.
+- `stop_search` refuses a month under 1,000 records as still loading; the
+  Met records five figures a month (12,088 in July 2026).
+- `flood` now counts warnings and alerts separately from `severityLevel`,
+  the second comparable figure that lets it clear `STARVE_MIN_FACTS` and
+  rejoin rotation; items without the field fall back to the old single
+  fact. ✅ Verified live at 01:21 BST on 12 September once the EA API came
+  back: 0 warnings, 1 alert, both from `severityLevel`.
+- `test_london_index_harvest.py` (22 tests) pins the pure builders: the
+  sign and wording of every change line, ranking order, the labels, and the
+  refusals.
+
+### Not built, on purpose, pending Chris
+- Wikipedia page views for London landmarks (daily, no key): real figures,
+  but not civic data, and this account's remit is "London in figures" from
+  its publishers.
+- The full LFB incident file: 81 MB per download, four times a day.
+- Dropping to three posts a day: the honest answer to a pool this static,
+  but a schedule change is his.
+- Thames tide times: the EA has no London tide gauge (checked
+  `type=TideGauge` and `qualifier=Tidal Level` within 25 km), so this still
+  needs the Admiralty signup. Rail Data Marketplace, Ticketmaster and the
+  Met Office portal are all still blocked on his own signups.
+- ⚠️ `london_index_methodology.py` was dirty in the tree from another
+  session and was not touched; its source-credit reply needs HM Land
+  Registry added once that session's work lands.
+- ⚠️ `london_index_post.py --dry-run` still writes `vein_last_at` to the
+  state file, so a hand dry-run at 9:00 puts that vein on the 20-hour
+  cooldown for the 12:30 run. Pre-existing; noted, not changed.
