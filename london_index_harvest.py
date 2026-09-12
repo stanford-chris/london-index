@@ -1036,7 +1036,8 @@ def spotlight_facts(name, records, prev_records, all_counts, ym, url):
             facts.append(mk(change, f'Change since {_readable_month(_shift_month(ym, 1))}'))
     if len(all_counts) >= SPOTLIGHT_MIN_RANKED and name in all_counts:
         rank = 1 + sum(1 for n in all_counts.values() if n > all_counts[name])
-        facts.append(mk(_ordinal(rank), f'Rank among {len(all_counts)} boroughs'))
+        # "most first", or 16th reads either way.
+        facts.append(mk(_ordinal(rank), f'Rank among {len(all_counts)} boroughs, most first'))
     return facts
 
 

@@ -326,7 +326,7 @@ class Spotlight(unittest.TestCase):
         facts = H.spotlight_facts('Newham', recs, prev, counts, '2026-07', 'u')
         self.assertEqual([(f['label'], f['value']) for f in facts],
                          [('Reported crimes', '482'), ('Most common: Violent crime', '359'),
-                          ('Change since June', '+20%'), ('Rank among 33 boroughs', '29th')])
+                          ('Change since June', '+20%'), ('Rank among 33 boroughs, most first', '29th')])
         for f in facts:
             self.assertEqual(f['fixed_opener'], {'emoji': '🚓', 'text': 'Reported crime in Newham'})
             self.assertEqual(f['dateline_lead'], H.SPOTLIGHT_LEAD)
