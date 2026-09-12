@@ -70,6 +70,8 @@ The title names what is measured ("Reported crime", "House prices, by borough").
 
 A daily weather card (`london_weather_post.py`) uses the Met Office Weather DataHub and posts separately.
 
+The events figures are Ticketmaster's own listings for London from its Discovery API, counted by segment with the API's exact segment filter. A listing is one performance or timed entry, so a West End theatre contributes eight a week and an attraction its timed slots; the card's footnote says so. Only counts are published, never listing content, and the key stays in the Keychain.
+
 Borough boundaries on the map are the Office for National Statistics' Local Authority Districts (December 2024), Open Government Licence v3.0, and contain OS data, Crown copyright and database right 2024; the map reply says so. The Congestion Charge zone boundary is TfL's, from the London Datastore's central ULEZ dataset (the same area), Open Government Licence, reprojected once from British National Grid and stored under `data/`. Every publisher is credited with a link in each thread and in the account's pinned thread.
 
 ## Files
