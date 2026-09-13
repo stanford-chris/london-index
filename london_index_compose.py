@@ -15,7 +15,7 @@ Public API:
         opener, lines, footnote, dateline, source_text, source_url, tags
 """
 
-from datetime import datetime, timezone, timedelta
+from datetime import date, datetime, timezone, timedelta
 
 LONDON_TZ = timezone(timedelta(hours=1))  # BST; fine for a first pass, no DST handling yet.
 
@@ -148,6 +148,51 @@ def _dateline(picks):
     return ''
 
 
+def _period_end(p):
+    """Parse a fact's raw `period` string into (end_date, unit) for
+    _is_stale(): 'YYYY-MM-DD' -> a date, 'date'; 'YYYY-MM' -> the 1st of
+    that month, 'month'; a bare 'YYYY' -> 1 January that year, 'year'. None
+    for anything else (a mixed/unrecognised shape), which _latest_note()
+    treats as always worth naming, matching its pre-13-September behaviour."""
+    if len(p) == 10:
+        try:
+            return datetime.strptime(p, '%Y-%m-%d').date(), 'date'
+        except ValueError:
+            return None
+    if len(p) == 7:
+        try:
+            return datetime.strptime(p, '%Y-%m').date(), 'month'
+        except ValueError:
+            return None
+    if len(p) == 4 and p.isdigit():
+        return date(int(p), 1, 1), 'year'
+    return None
+
+
+def _is_stale(p, now=None):
+    """True when the real period `p` ends more than one degree removed
+    from today's own, necessarily-incomplete day/month/year: a fresher
+    period of the same kind could, in principle, already exist. False when
+    it's already as fresh as a period of its kind can possibly be
+    (yesterday for a date, last calendar month for a month, last calendar
+    year for a year) -- the case _latest_note() drops its sentence for,
+    Chris's call, 13 September 2026: saying "the latest" is trivial when a
+    period is plainly, unavoidably the newest that could exist yet.
+    Unrecognised shapes are treated as stale (the note is kept), since
+    there's nothing here to say it's trivially fresh."""
+    parsed = _period_end(p)
+    if not parsed:
+        return True
+    end, unit = parsed
+    if now is None:
+        now = datetime.now(LONDON_TZ).date()
+    if unit == 'date':
+        return (now - end).days > 1
+    if unit == 'month':
+        return (now.year - end.year) * 12 + (now.month - end.month) > 1
+    return now.year - end.year > 1
+
+
 def _latest_note(picks, dateline_text):
     """One sentence for the footnote saying the period on the second line
     is the newest the publisher has: "June 2026 is the latest month for
@@ -167,11 +212,19 @@ def _latest_note(picks, dateline_text):
     for which data is available". No full stop, since footnotes on this
     account carry none (see MUSEUM_NOTE_GROUP); compose() joins it to the
     context note with a middle dot.
+
+    Narrowed 13 September 2026, his call: dropped entirely when the real
+    period (`p`, whatever the displayed dateline_text says) is no more
+    than one degree removed from today's own, still-incomplete day/month/
+    year -- see _is_stale(). Saying "the latest" is trivial when a period
+    is plainly, unavoidably the newest that could exist yet.
     """
     if _is_live(picks):
         return ''
     periods = {f.get('period') for f in picks}
     p = next(iter(periods)) if len(periods) == 1 else None
+    if p and not _is_stale(p):
+        return ''
     if dateline_text:
         if dateline_text.startswith('Four weeks, ') and p and _is_single_day(picks):
             subject = f'the four weeks to {_readable_period(p)}'

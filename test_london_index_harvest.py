@@ -611,12 +611,15 @@ class LatestNote(unittest.TestCase):
         return C.compose({'opener': {'emoji': '', 'text': 'T'}, 'ids': [f['id'] for f in facts]}, facts)
 
     def test_a_month_a_year_and_a_day_each_name_their_own_unit(self):
-        month = [H.fact('1', 'a', 's', 'u', period='2026-07'), H.fact('2', 'b', 's', 'u', period='2026-07')]
+        # Each period here is more than one degree removed from today (13
+        # September 2026), so the sentence shows; see LatestNoteFreshness
+        # for the boundary itself.
+        month = [H.fact('1', 'a', 's', 'u', period='2026-06'), H.fact('2', 'b', 's', 'u', period='2026-06')]
         self.assertEqual(self.compose(month)['footnote'],
-                         'July 2026 is the latest month for which data is available')
-        year = [H.fact('1', 'a', 's', 'u', period='2025'), H.fact('2', 'b', 's', 'u', period='2025')]
+                         'June 2026 is the latest month for which data is available')
+        year = [H.fact('1', 'a', 's', 'u', period='2024'), H.fact('2', 'b', 's', 'u', period='2024')]
         self.assertEqual(self.compose(year)['footnote'],
-                         '2025 is the latest year for which data is available')
+                         '2024 is the latest year for which data is available')
         day = [H.fact('1', 'a', 's', 'u', period='2026-09-03'), H.fact('2', 'b', 's', 'u', period='2026-09-03')]
         self.assertEqual(self.compose(day)['footnote'],
                          '3 September 2026 is the latest date for which data is available')
@@ -640,6 +643,54 @@ class LatestNote(unittest.TestCase):
                  H.fact('2', 'b', 's', 'u', period='2026-07', dateline_text='May to July 2026')]
         self.assertEqual(self.compose(facts)['footnote'],
                          'May to July 2026 is the latest period for which data is available')
+
+
+class LatestNoteFreshness(unittest.TestCase):
+    """_is_stale()/_latest_note(): the sentence is dropped when a period is
+    no more than one degree removed from today's own, necessarily-
+    incomplete day/month/year, his call, 13 September 2026 -- Seoul
+    Index's identical narrowing (see LatestNoteFreshness there), applied
+    here too since the sentence is the same one, worded from the same
+    _latest_note(). Pinned against an injected `now` rather than the real
+    calendar, exactly for the reason Seoul Index's test class gives."""
+
+    def setUp(self):
+        import london_index_compose as C
+        self.C = C
+        self.now = C.date(2026, 9, 13)
+
+    def compose(self, facts):
+        for i, f in enumerate(facts):
+            f['id'] = f'x:{i}'
+            f['vein'] = 'x'
+        return self.C.compose({'opener': {'emoji': '', 'text': 'T'}, 'ids': [f['id'] for f in facts]}, facts)
+
+    def test_a_date_is_stale_only_when_more_than_a_day_behind(self):
+        self.assertFalse(self.C._is_stale('2026-09-13', self.now))  # today
+        self.assertFalse(self.C._is_stale('2026-09-12', self.now))  # yesterday
+        self.assertTrue(self.C._is_stale('2026-09-11', self.now))   # two days back
+
+    def test_a_month_is_stale_only_when_more_than_a_calendar_month_behind(self):
+        self.assertFalse(self.C._is_stale('2026-08', self.now))   # last month
+        self.assertTrue(self.C._is_stale('2026-07', self.now))    # two months back
+
+    def test_a_year_is_stale_only_when_more_than_a_calendar_year_behind(self):
+        self.assertFalse(self.C._is_stale('2025', self.now))   # last year
+        self.assertTrue(self.C._is_stale('2024', self.now))    # two years back
+
+    def test_an_unrecognised_shape_is_treated_as_stale(self):
+        self.assertTrue(self.C._is_stale('not-a-period', self.now))
+        self.assertTrue(self.C._is_stale('2026-13-40', self.now))   # not a real date
+
+    def test_the_sentence_is_dropped_for_a_fresh_period_on_a_real_card(self):
+        fresh = [H.fact('1', 'a', 's', 'u', period='2026-09-12'),
+                 H.fact('2', 'b', 's', 'u', period='2026-09-12')]
+        # compose() reads the real clock, not the injected `now` above; this
+        # only holds while "yesterday" from _is_stale's own default equals
+        # 12 September, i.e. while this suite runs on 13 September 2026 or
+        # later. The unit tests above are the ones that don't drift.
+        if self.C.datetime.now(self.C.LONDON_TZ).date() == self.C.date(2026, 9, 13):
+            self.assertEqual(self.compose(fresh)['footnote'], '')
 
 
 class ZoneMap(unittest.TestCase):
