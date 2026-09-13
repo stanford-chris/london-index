@@ -2723,6 +2723,30 @@ def _csv_rows(text):
     return rows
 
 
+def _harvest_csv(url, facts_fn, label):
+    """Download `url` as CSV and hand its rows to `facts_fn`, the shared
+    shape behind the Datastore CSV harvesters below."""
+    text = _download_text(url)
+    if not text:
+        return [], f'{label} download failed'
+    try:
+        return facts_fn(_csv_rows(text)), None
+    except ValueError as e:
+        return [], str(e)
+
+
+def _harvest_xlsx(url, facts_fn, label, sheet=None):
+    """Download `url` as XLSX and hand one sheet's rows to `facts_fn`, the
+    shared shape behind the Datastore XLSX harvesters below."""
+    rows = _download_xlsx_rows(url, sheet=sheet)
+    if not rows:
+        return [], f'{label} download failed'
+    try:
+        return facts_fn(rows), None
+    except ValueError as e:
+        return [], str(e)
+
+
 def _month_label(s):
     """'Jul-26' -> '2026-07'."""
     return datetime.strptime(s.strip(), '%b-%y').strftime('%Y-%m')
@@ -2784,13 +2808,7 @@ def reservoir_facts(rows, url=RESERVOIR_PAGE):
 
 
 def harvest_reservoirs():
-    text = _download_text(RESERVOIR_URL)
-    if not text:
-        return [], 'reservoir levels download failed'
-    try:
-        return reservoir_facts(_csv_rows(text)), None
-    except ValueError as e:
-        return [], str(e)
+    return _harvest_csv(RESERVOIR_URL, reservoir_facts, 'reservoir levels')
 
 
 # 2. TfL journeys by mode, per four-week reporting period.
@@ -2851,13 +2869,7 @@ def journey_facts(rows, url=JOURNEYS_PAGE):
 
 
 def harvest_tfl_journeys():
-    text = _download_text(JOURNEYS_URL)
-    if not text:
-        return [], 'TfL journeys download failed'
-    try:
-        return journey_facts(_csv_rows(text)), None
-    except ValueError as e:
-        return [], str(e)
+    return _harvest_csv(JOURNEYS_URL, journey_facts, 'TfL journeys')
 
 
 # 3. Congestion Charge zone: vehicles seen in charging hours, monthly.
@@ -2899,13 +2911,7 @@ def congestion_facts(rows, url=CCZ_PAGE):
 
 
 def harvest_congestion_charge():
-    text = _download_text(CCZ_URL)
-    if not text:
-        return [], 'Congestion Charge download failed'
-    try:
-        return congestion_facts(_csv_rows(text)), None
-    except ValueError as e:
-        return [], str(e)
+    return _harvest_csv(CCZ_URL, congestion_facts, 'Congestion Charge')
 
 
 # 4. Police force strength, monthly, full-time equivalents.
@@ -2941,13 +2947,7 @@ def strength_facts(rows, url=STRENGTH_PAGE):
 
 
 def harvest_police_strength():
-    text = _download_text(STRENGTH_URL)
-    if not text:
-        return [], 'police strength download failed'
-    try:
-        return strength_facts(_csv_rows(text)), None
-    except ValueError as e:
-        return [], str(e)
+    return _harvest_csv(STRENGTH_URL, strength_facts, 'police strength')
 
 
 # 5. Arrests by the Metropolitan Police, monthly, from the custody dashboard.
@@ -3001,13 +3001,7 @@ def arrests_facts(rows, url=ARRESTS_PAGE):
 
 
 def harvest_arrests():
-    rows = _download_xlsx_rows(ARRESTS_URL, sheet='Arrests')
-    if not rows:
-        return [], 'arrests download failed'
-    try:
-        return arrests_facts(rows), None
-    except ValueError as e:
-        return [], str(e)
+    return _harvest_xlsx(ARRESTS_URL, arrests_facts, 'arrests', sheet='Arrests')
 
 
 # 6. Unemployment, London against the UK, rolling quarter (ONS via the GLA).
@@ -3062,13 +3056,7 @@ def _rate_change(now, before):
 
 
 def harvest_unemployment():
-    rows = _download_xlsx_rows(UNEMPLOYMENT_URL, sheet='Long-term trend')
-    if not rows:
-        return [], 'unemployment download failed'
-    try:
-        return unemployment_facts(rows), None
-    except ValueError as e:
-        return [], str(e)
+    return _harvest_xlsx(UNEMPLOYMENT_URL, unemployment_facts, 'unemployment', sheet='Long-term trend')
 
 
 # 7. People freed from lifts by the fire brigade, monthly.
