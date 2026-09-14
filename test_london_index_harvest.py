@@ -358,6 +358,64 @@ class Spotlight(unittest.TestCase):
         self.assertEqual([f['label'] for f in facts], ['Reported crimes', 'Most common: Burglary'])
 
 
+class HousePriceSpotlight(unittest.TestCase):
+    """The choropleth's second vein: same rotation/rank shape as Spotlight
+    above, over house_prices' own HPI_BOROUGHS instead of crime counts."""
+
+    def _boroughs(self, prices):
+        return {name: {'averagePrice': price} for name, price in prices.items()}
+
+    def test_facts(self):
+        # Same numeric shape as Spotlight.test_facts above (32 evenly-spaced
+        # values plus one deliberate insert), so the expected rank is
+        # checkable by the same reasoning: 28 of the 32 B-names exceed
+        # 482,000, so Newham is 29th of 33.
+        prices = {f'B{i}': 100_000 * i for i in range(1, 33)}
+        prices['Newham'] = 482_000
+        boroughs = self._boroughs(prices)
+        boroughs['Newham']['percentageAnnualChange'] = 7.3
+        boroughs['Newham']['percentageChange'] = -0.4
+        facts = H.house_price_spotlight_facts('Newham', boroughs, '2026-07')
+        self.assertEqual([(f['label'], f['value']) for f in facts],
+                         [('Average price', '£482,000'), ('Change on a year earlier', '+7.3%'),
+                          ('Change on the month', '−0.4%'), ('Rank among boroughs', '29th highest of 33')])
+        for f in facts:
+            self.assertEqual(f['fixed_opener'], {'emoji': '🏠', 'text': 'House prices in Newham'})
+            self.assertIsNone(f['dateline_lead'])
+            self.assertEqual(f['pair'], 'hp_spot')
+            self.assertEqual(f['map_pin']['name'], 'Newham')
+            self.assertEqual(len(f['map_pin']['ranks']), 33)
+            self.assertEqual(f['map_pin']['ranks']['Newham'], 482_000)
+
+    def test_no_rank_or_map_ranks_when_too_few_boroughs_answered(self):
+        boroughs = self._boroughs({'Bexley': 400_000, 'Brent': 450_000})
+        facts = H.house_price_spotlight_facts('Bexley', boroughs, '2026-07')
+        self.assertEqual([f['label'] for f in facts], ['Average price'])
+        self.assertEqual(facts[0]['map_pin'], {'name': 'Bexley', 'lat': None, 'lng': None})
+
+    def test_hp_spotlight_last_featured_reads_its_own_openers_only(self):
+        import json, tempfile
+        fh = tempfile.NamedTemporaryFile('w', suffix='.jsonl', delete=False)
+        for at, opener in (('2026-09-01 08:00:00', 'House prices in Sutton'),
+                           ('2026-09-03 08:00:00', 'House prices in Sutton'),
+                           ('2026-09-02 08:00:00', 'Reported crime in Sutton'),
+                           ('2026-09-02 09:00:00', 'House prices in Narnia')):
+            fh.write(json.dumps({'at': at, 'opener': opener, 'lines': []}) + '\n')
+        fh.close()
+        self.addCleanup(Path(fh.name).unlink)
+        self.assertEqual(H.hp_spotlight_last_featured(fh.name), {'Sutton': '2026-09-03 08:00:00'})
+
+    def test_hpi_boroughs_matches_the_boundary_file_exactly(self):
+        # Same guarantee test_boundary_file_names_match_the_harvester_exactly
+        # gives ALL_BOROUGHS: render_borough_map() raises CardRenderError
+        # for a name the boundary file does not carry, so a mismatch here
+        # would fail every picked borough's map, not just some.
+        self.assertEqual(set(H.HPI_BOROUGHS), set(H.ALL_BOROUGHS))
+
+    def test_registered_in_the_dispatch_table(self):
+        self.assertIs(H.HARVESTERS['house_price_spotlight'], H.harvest_house_price_spotlight)
+
+
 class BoroughMap(unittest.TestCase):
     def test_boundary_file_names_match_the_harvester_exactly(self):
         import london_index_card as card

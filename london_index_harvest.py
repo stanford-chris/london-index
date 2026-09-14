@@ -78,6 +78,11 @@ dcms_museums added 30 August):
                   data JSON, no key: London's average price and annual
                   change, flats against detached houses, and all 33
                   boroughs ranked. Monthly, about two months behind.
+  house_price_spotlight - the same HPI boroughs, one per card, least
+                  recently featured first: its own average price, change
+                  on the year and the month, and rank among the boroughs
+                  that answered - the choropleth's second vein, added
+                  14 September 2026, same shape as police_spotlight.
   road_works    - TfL's Road/all/Disruption: everything TfL lists as a
                   disruption on its own roads right now. Live.
   lfb_animals   - London Datastore's "Animal rescue incidents attended by
@@ -2289,14 +2294,49 @@ HPI_LEAD = 'Land Registry index averages'
 HPI_NOTE = 'All property types; recent months are provisional'
 
 
+_HPI_MEMO = {}
+
+
 def _hpi_month(slug, ym):
-    d = get_json(f'https://landregistry.data.gov.uk/data/ukhpi/region/{slug}/month/{ym}.json')
-    if not isinstance(d, dict):
-        return None
-    topic = (d.get('result') or {}).get('primaryTopic') if isinstance(d.get('result'), dict) else None
-    if isinstance(topic, dict) and isinstance(topic.get('averagePrice'), (int, float)):
-        return topic
+    """Memoised per process: house_prices and house_price_spotlight both
+    read the same boroughs' months in one run, and the spotlight's rank
+    needs all of them, so without this a run would fetch every borough
+    twice over - the same reason _police_month is memoised."""
+    key = (slug, ym)
+    if key not in _HPI_MEMO:
+        d = get_json(f'https://landregistry.data.gov.uk/data/ukhpi/region/{slug}/month/{ym}.json')
+        rec = None
+        if isinstance(d, dict):
+            topic = (d.get('result') or {}).get('primaryTopic') if isinstance(d.get('result'), dict) else None
+            if isinstance(topic, dict) and isinstance(topic.get('averagePrice'), (int, float)):
+                rec = topic
+        _HPI_MEMO[key] = rec
+    return _HPI_MEMO[key]
+
+
+def _hpi_current_month():
+    """The latest month with a published London HPI figure, walking back
+    up to 5 months. Shared by house_prices and house_price_spotlight so
+    both land on the same month in one run."""
+    this_month = datetime.now(timezone.utc).strftime('%Y-%m')
+    for back in range(1, 6):
+        ym = _shift_month(this_month, back)
+        if _hpi_month('london', ym):
+            return ym
     return None
+
+
+def _hpi_boroughs(ym):
+    """Every HPI_BOROUGHS borough's record for `ym` that answered, and the
+    names that did not."""
+    boroughs, failed = {}, []
+    for name, slug in HPI_BOROUGHS.items():
+        rec = _hpi_month(slug, ym)
+        if rec:
+            boroughs[name] = rec
+        else:
+            failed.append(name)
+    return boroughs, failed
 
 
 def _pounds(v):
@@ -2358,24 +2398,70 @@ def house_price_facts(london, boroughs, ym, url=HPI_PAGE):
 
 
 def harvest_house_prices():
-    this_month = datetime.now(timezone.utc).strftime('%Y-%m')
-    london = ym = None
-    for back in range(1, 6):
-        ym = _shift_month(this_month, back)
-        london = _hpi_month('london', ym)
-        if london:
-            break
-    if not london:
+    ym = _hpi_current_month()
+    if ym is None:
         return [], 'no published UK HPI month for London in the last 5 tried'
-    boroughs = {}
-    failed = []
-    for name, slug in HPI_BOROUGHS.items():
-        rec = _hpi_month(slug, ym)
-        if rec:
-            boroughs[name] = rec
-        else:
-            failed.append(name)
+    london = _hpi_month('london', ym)
+    boroughs, failed = _hpi_boroughs(ym)
     facts = house_price_facts(london, boroughs, ym)
+    if failed:
+        facts[0]['note'] = (f'{len(failed)} of {len(HPI_BOROUGHS)} boroughs did not answer '
+                            f'for {ym}: {failed}')
+    return facts, None
+
+
+# --- House price spotlight: one borough, its own price and rank ------------
+# The choropleth's second vein, added 14 September 2026 (police_spotlight
+# was the first). Same rotation shape as spotlight_facts() above: reads
+# HPI_BOROUGHS through the memoised _hpi_month(), so a run building both
+# house_prices and this vein fetches each borough once, not twice.
+HP_SPOTLIGHT_OPENER_PREFIX = 'House prices in '
+
+
+def hp_spotlight_last_featured(history_path=CARD_HISTORY_PATH):
+    return last_featured(HP_SPOTLIGHT_OPENER_PREFIX, HPI_BOROUGHS, history_path)
+
+
+def house_price_spotlight_facts(name, boroughs, ym, url=HPI_PAGE):
+    """One borough's own average price, change on the year and the month,
+    and its rank among the boroughs that answered - the same shape
+    spotlight_facts() builds for crime. `boroughs` is every HPI_BOROUGHS
+    borough that answered `ym` (from _hpi_boroughs()), `name`'s own record
+    among them. Under HPI_MIN_BOROUGHS answering, no rank line and no
+    `ranks` on the map pin - the same threshold house_price_facts() uses
+    for its own borough shapes, so the spotlight and those facts either
+    both carry the comparison or neither does."""
+    rec = boroughs[name]
+    opener = {'emoji': '🏠', 'text': HP_SPOTLIGHT_OPENER_PREFIX + name}
+    pin = {'name': name, 'lat': None, 'lng': None}
+    ranked = len(boroughs) >= HPI_MIN_BOROUGHS
+    if ranked:
+        pin['ranks'] = {n: r['averagePrice'] for n, r in boroughs.items()}
+    mk = lambda v, label: fact(v, label, HPI_SOURCE, url, period=ym, pair='hp_spot',
+                               context_note=HPI_NOTE, fixed_opener=opener, map_pin=pin)
+    facts = [mk(_pounds(rec['averagePrice']), 'Average price')]
+    annual = _signed_pct(rec.get('percentageAnnualChange'))
+    if annual:
+        facts.append(mk(annual, 'Change on a year earlier'))
+    monthly = _signed_pct(rec.get('percentageChange'))
+    if monthly:
+        facts.append(mk(monthly, 'Change on the month'))
+    if ranked:
+        prices = pin['ranks']
+        rank = 1 + sum(1 for v in prices.values() if v > prices[name])
+        facts.append(mk(f'{_ordinal(rank)} highest of {len(prices)}', 'Rank among boroughs'))
+    return facts
+
+
+def harvest_house_price_spotlight():
+    ym = _hpi_current_month()
+    if ym is None:
+        return [], 'no published UK HPI month for London in the last 5 tried'
+    boroughs, failed = _hpi_boroughs(ym)
+    if not boroughs:
+        return [], f'no borough answered for {ym}'
+    name = spotlight_pick(list(boroughs), hp_spotlight_last_featured())
+    facts = house_price_spotlight_facts(name, boroughs, ym)
     if failed:
         facts[0]['note'] = (f'{len(failed)} of {len(HPI_BOROUGHS)} boroughs did not answer '
                             f'for {ym}: {failed}')
@@ -3451,6 +3537,7 @@ HARVESTERS = {
     # cadence, none needing a key. See each harvester's own comment.
     'stop_search': harvest_stop_search,
     'house_prices': harvest_house_prices,
+    'house_price_spotlight': harvest_house_price_spotlight,
     'road_works': harvest_road_works,
     'lfb_animals': harvest_lfb_animals,
     'rail_departures': harvest_rail_departures,
