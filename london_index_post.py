@@ -243,13 +243,30 @@ def main():
             try:
                 map_path = HERE / 'map.png'
                 spot = (pin['lat'], pin['lng']) if pin.get('lat') is not None else None
+                ranks = pin.get('ranks')
+                ranked = bool(ranks) and pin['name'] in ranks
+                # Same shape of caption either way: what the shading/circle/
+                # Zone 1 line means, since the card image carries no legend
+                # of its own. His call, 14 September 2026, for both halves.
+                rank_caption = (f'Every borough that reported is shaded darkest (highest) to '
+                                 f'lightest (lowest), {len(ranks)} boroughs this month; '
+                                 f'{pin["name"]} outlined in red.') if ranked else ''
+                plain_caption = 'Zone 1 (the Congestion Charge zone) is outlined for scale.' + (
+                    ' The circle is one mile around the town hall, the area the figures cover.'
+                    if spot else '')
                 _, msize = card.render_borough_map(
                     pin['name'], spot, map_path, title=pin['name'],
-                    caption=('The circle is one mile around the town hall, the area the figures cover'
-                             if spot else ''))
-                map_alt = (f"Map of Greater London’s 33 boroughs in outline with {pin['name']} "
-                           f"filled in" + (", its town hall marked and a one-mile circle around it, "
-                                           "the area the card’s figures cover." if spot else "."))
+                    caption=rank_caption or plain_caption,
+                    ranks=ranks)
+                if ranked:
+                    map_alt = (f"Map of Greater London’s 33 boroughs, each one that reported shaded "
+                               f"from darkest (highest) to lightest (lowest) on this card’s figures, "
+                               f"with {pin['name']} outlined in red.")
+                else:
+                    map_alt = (f"Map of Greater London’s 33 boroughs in outline with {pin['name']} "
+                               f"filled in and Zone 1 outlined for scale" +
+                               (", its town hall marked and a one-mile circle around it, "
+                                "the area the card’s figures cover." if spot else "."))
                 mtb = client_utils.TextBuilder()
                 mtb.text('Boundaries: ').link('Office for National Statistics',
                                               'https://geoportal.statistics.gov.uk/')

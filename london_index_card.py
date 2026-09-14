@@ -101,6 +101,31 @@ def _esc(s):
     return html.escape(curly(str(s)), quote=True)
 
 
+CAPTION_MAX_CHARS = 100   # a monospace 12px line at the map's own 860px width, with margin
+
+
+def _wrap_caption(s, max_chars=CAPTION_MAX_CHARS):
+    """Greedy word-wrap for a map caption: the caption is a plain SVG <text>
+    element with no width awareness of its own, so a caption longer than
+    this was silently cut off at the canvas edge — found rendering the
+    borough choropleth's own caption. Splits on spaces only; one word
+    longer than max_chars is left whole rather than broken mid-word."""
+    if not s:
+        return []
+    words = s.split()
+    lines, cur = [], ''
+    for w in words:
+        cand = f'{cur} {w}'.strip()
+        if len(cand) > max_chars and cur:
+            lines.append(cur)
+            cur = w
+        else:
+            cur = cand
+    if cur:
+        lines.append(cur)
+    return lines
+
+
 def _line_html(line):
     if 'subhead' in line:
         return f'<div class="sub">{_esc(line["subhead"])}</div>'
@@ -217,6 +242,9 @@ MUTED = '#8a93b8'
 BOROUGHS_GEOJSON = Path(__file__).parent / 'data' / 'london_boroughs.geojson'
 MILE_M = 1609.344
 M_PER_DEG_LAT = 111_320
+RANK_OP_MAX = 0.75   # fill-opacity of the darkest (rank 1) borough in render_borough_map's choropleth
+RANK_OP_MIN = 0.10   # fill-opacity of the lightest-ranked borough; kept above the 0.06 "no data" shade
+                      # so a reader can't mistake the safest/quietest borough for one that never reported
 
 
 def load_boroughs(path=BOROUGHS_GEOJSON):
@@ -254,7 +282,7 @@ def load_borough_outers(path=BOROUGHS_GEOJSON):
     return out
 
 
-def render_borough_map(highlight, town_hall, out_path, title='', caption='', boroughs=None):
+def render_borough_map(highlight, town_hall, out_path, title='', caption='', boroughs=None, ranks=None):
     """Greater London's 33 boroughs in outline, `highlight` filled, its town
     hall dotted and a one-mile circle around it: the threaded reply for the
     spotlight card, and the honest picture of what "within a mile of the
@@ -262,7 +290,31 @@ def render_borough_map(highlight, town_hall, out_path, title='', caption='', bor
     tiles: the outlines are the map. `town_hall` is (lat, lng), as the
     harvester stores it. Raises CardRenderError for a borough name the
     boundary file does not carry, rather than drawing a map with nothing
-    highlighted."""
+    highlighted.
+
+    `ranks` is an optional {name: value} covering as many of the 33
+    boroughs as the card's own metric could rank (higher value = darker —
+    whatever "higher" means for that metric is the caller's business, not
+    this function's). When given, the map itself carries the comparison
+    the card's text already states in words ("29th highest of 33"): every
+    named borough is shaded from RANK_OP_MAX (the highest value) down to
+    RANK_OP_MIN (the lowest), so a reader gets the same picture at a
+    glance that the rank line spells out. A borough missing from `ranks`
+    (not every borough answers every month) keeps the plain unranked
+    outline rather than being guessed a shade. Chris's call, 14 September
+    2026 ("maybe the map itself could provide context, with No. 1 rank in
+    darkest color to lightest with No. 32"). `highlight` always gets a
+    thick red outline on top of its own fill (ranked or the flat 0.55 of
+    the unranked look) — his follow-up the same day — so the spotlighted
+    borough is never lost inside its own gradient.
+
+    When `ranks` is NOT given, a Zone 1 outline (the Congestion Charge
+    zone boundary, close enough to stand in for it) is drawn as well, for
+    the same reason: the plain single-highlight look has nothing else on
+    it for a reader unfamiliar with London to get their bearings from.
+    Withheld when `ranks` is given, since the choropleth already carries
+    that orientation and a second marking style would just compete with
+    the highlight's own red border. Chris's call, also 14 September 2026."""
     boroughs = boroughs or load_boroughs()
     if highlight not in boroughs:
         raise CardRenderError(f'{highlight!r} is not in the borough boundary file')
@@ -272,7 +324,8 @@ def render_borough_map(highlight, town_hall, out_path, title='', caption='', bor
     # room for the title above and the caption below.
     width = MAP_SIZE
     pad = width * 0.04
-    top, bottom = 56, 44
+    caption_lines = _wrap_caption(caption)
+    top, bottom = 56, 44 + max(0, len(caption_lines) - 1) * 16
     pts = [p for rings in boroughs.values() for r in rings for p in r]
     lo0, lo1 = min(p[0] for p in pts), max(p[0] for p in pts)
     la0, la1 = min(p[1] for p in pts), max(p[1] for p in pts)
@@ -291,11 +344,55 @@ def render_borough_map(highlight, town_hall, out_path, title='', caption='', bor
             parts.append('M' + 'L'.join(f'{x:.1f} {y:.1f}' for x, y in (xy(*p) for p in ring)) + 'Z')
         return ''.join(parts)
 
-    body = [f'<path d="{path(rings)}" fill="{INK}" fill-opacity="0.06" stroke="{MUTED}" '
-            f'stroke-width="1" fill-rule="evenodd"/>'
-            for name, rings in boroughs.items() if name != highlight]
-    body.append(f'<path d="{path(boroughs[highlight])}" fill="{INK}" fill-opacity="0.55" '
-                f'stroke="{INK}" stroke-width="1.5" fill-rule="evenodd"/>')
+    # Rank position within `ranks`, ties sharing a position — the same
+    # "how many are strictly greater" count spotlight_facts() uses for its
+    # own "Nth highest" line, so the map and the card text never disagree
+    # about where a borough falls.
+    values = sorted(ranks.values(), reverse=True) if ranks else []
+    span = max(len(values) - 1, 1)
+
+    def shade(name):
+        if not ranks or name not in ranks:
+            return None
+        v = ranks[name]
+        better = sum(1 for x in values if x > v)
+        frac = better / span
+        return RANK_OP_MAX - frac * (RANK_OP_MAX - RANK_OP_MIN)
+
+    body = []
+    for name, rings in boroughs.items():
+        if name == highlight:
+            continue
+        op = shade(name)
+        op = f'{op:.3f}' if op is not None else '0.06'
+        body.append(f'<path d="{path(rings)}" fill="{INK}" fill-opacity="{op}" stroke="{MUTED}" '
+                    f'stroke-width="1" fill-rule="evenodd"/>')
+    hl_op = shade(highlight)
+    hl_op = f'{hl_op:.3f}' if hl_op is not None else '0.55'
+    body.append(f'<path d="{path(boroughs[highlight])}" fill="{INK}" fill-opacity="{hl_op}" '
+                f'stroke="{RED}" stroke-width="3" fill-rule="evenodd"/>')
+    if not ranks:
+        # Zone 1 (close enough that the already-licensed Congestion Charge
+        # boundary stands in for it) gives a reader with no mental map of
+        # London a fixed point to read the highlighted borough's distance
+        # from — the plain single-highlight look otherwise has nothing on
+        # it a reader unfamiliar with the city could orient by. Only drawn
+        # here, never alongside `ranks`: the choropleth's own gradient
+        # already carries that orientation, and a third marking style on
+        # top of it would compete with the highlight's own red border
+        # rather than help. Drawn last (after the highlight) so its line
+        # stays visible even where it crosses the highlighted borough.
+        # Chris's call, 14 September 2026.
+        zone = load_zone()
+        zlo0 = min(p[0] for ring in zone for p in ring)
+        zlo1 = max(p[0] for ring in zone for p in ring)
+        zla0 = min(p[1] for ring in zone for p in ring)
+        zla1 = max(p[1] for ring in zone for p in ring)
+        body.append(f'<path d="{path(zone)}" fill="none" stroke="{INK}" stroke-width="2" '
+                    f'stroke-dasharray="6 4" fill-rule="evenodd"/>')
+        lx, ly = xy(zlo1, zla1)   # label just past the zone's own top-right corner
+        body.append(f'<text x="{lx + 8:.1f}" y="{ly - 4:.1f}" font-family="Menlo,monospace" '
+                    f'font-size="13" font-weight="bold" fill="{INK}">Zone 1</text>')
     if town_hall:
         # The one-mile circle, from when the figures were a sample around
         # the town hall (until 12 September 2026). Whole-borough counts need
@@ -309,8 +406,10 @@ def render_borough_map(highlight, town_hall, out_path, title='', caption='', bor
         body.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="4.5" fill="{RED}" stroke="{CREAM}" stroke-width="2"/>')
     title_html = (f'<text x="30" y="34" font-family="Menlo,monospace" font-size="20" '
                   f'font-weight="bold" fill="#000">{_esc(title)}</text>' if title else '')
-    caption_html = (f'<text x="30" y="{size - 24}" font-family="Menlo,monospace" '
-                    f'font-size="12" fill="{MUTED}">{_esc(caption)}</text>' if caption else '')
+    caption_html = ''.join(
+        f'<text x="30" y="{size - 24 - (len(caption_lines) - 1 - i) * 16}" '
+        f'font-family="Menlo,monospace" font-size="12" fill="{MUTED}">{_esc(line)}</text>'
+        for i, line in enumerate(caption_lines))
     svg = (f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{size}" '
            f'viewBox="0 0 {width} {size}">'
            f'<rect width="{width}" height="{size}" fill="{CREAM}"/>'

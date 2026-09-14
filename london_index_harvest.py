@@ -1359,9 +1359,17 @@ def spotlight_facts(name, total, categories, prev_total, all_counts, ym, url,
     counts for the month, the previous month's total (or None) and every
     answering borough's total for the rank; under SPOTLIGHT_MIN_RANKED
     answering, no rank line. The map pin names the borough and carries no
-    coordinates: the fill is the area counted, so no circle."""
+    coordinates: the fill is the area counted, so no circle. Under the
+    same SPOTLIGHT_MIN_RANKED threshold that withholds the "Nth highest"
+    line, the pin also carries every answering borough's count as
+    `ranks`, so london_index_card.render_borough_map can shade the whole
+    map by it — the map and the card text either both carry the
+    comparison or neither does. Added 14 September 2026, his call."""
     opener = {'emoji': '🚓', 'text': SPOTLIGHT_OPENER_PREFIX + name}
     pin = {'name': name, 'lat': None, 'lng': None}
+    ranked = len(all_counts) >= SPOTLIGHT_MIN_RANKED and name in all_counts
+    if ranked:
+        pin['ranks'] = dict(all_counts)
     name_fn = name_fn or _category_name
     mk = lambda v, label: fact(v, label, source, url, period=ym, pair='spot_all',
                                context_note=note if note is not None else SPOTLIGHT_NOTE,
@@ -1373,7 +1381,7 @@ def spotlight_facts(name, total, categories, prev_total, all_counts, ym, url,
         change = _pct_change(total, prev_total)
         if change is not None:
             facts.append(mk(change, f'Change since {_readable_month(_shift_month(ym, 1))}'))
-    if len(all_counts) >= SPOTLIGHT_MIN_RANKED and name in all_counts:
+    if ranked:
         rank = 1 + sum(1 for n in all_counts.values() if n > all_counts[name])
         # The value explains itself ("16th highest of 33"): a bare "16th" reads
         # either way, and "most first" on the label did not read at all. His
