@@ -69,7 +69,7 @@ The title names what is measured ("Reported crime", "House prices, by borough").
 | `events` | Ticketmaster Discovery API: what is on sale in London for the next seven days, by segment, the busiest day and the venues with most on sale, and the next 24 hours and 30 days | live |
 | `museum_spotlight` | the DCMS release: one of the 13 London museums per card, its visitors, change, ten years earlier, overseas and under-16 visitors, website visits, recommendation rate and admissions income | yearly |
 
-A daily weather card (`london_weather_post.py`) uses the Met Office Weather DataHub and posts separately.
+A daily weather card (`london_weather_post.py`) uses the Met Office Weather DataHub and posts separately. A second, `london_wxday_post.py`, posts yesterday's *observed* readings: High/Low from the same DataHub's Land Observations API (a separate subscription and key from the forecast card's own, which carries no rain, sunshine or snow field at all), plus a Rain line — shown only when it actually rained — from a second, different UK government source, the Environment Agency's real-time flood-monitoring API (real tipping-bucket gauges, no key needed). No Conditions, Humidity, Wind, Sunshine or Snow row, his call.
 
 The events figures are Ticketmaster's own listings for London from its Discovery API, counted by segment with the API's exact segment filter. A listing is one performance or timed entry, so a West End theatre contributes eight a week and an attraction its timed slots; the card's footnote says so. Only counts are published, never listing content, and the key stays in the Keychain.
 
@@ -84,6 +84,7 @@ Borough boundaries on the map are the Office for National Statistics' Local Auth
 - `london_index_post.py`: the poster; `--dry-run` harvests, selects, composes and renders without posting or changing state.
 - `london_index_methodology.py`: the pinned "about this account" thread.
 - `london_weather_post.py`: the daily forecast card.
+- `london_wxday_post.py`: yesterday's observed weather (Met Office Land Observations for High/Low, Environment Agency for Rain), not a forecast.
 - `data/london_boroughs.geojson`: the borough outlines.
 - `test_*.py`: the tests, run by file (`python3 test_london_index_harvest.py`).
 - `SESSION_SUMMARY.md`: the working record, with the reasoning behind each decision and the dates they were made.

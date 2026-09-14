@@ -8,6 +8,9 @@ scratch/
 weather_card.png
 .weather.lock
 weather_history.jsonl
+wxday_card.png
+.wxday.lock
+wxday_history.jsonl
 map.png
 data/crime_by_borough.json
 data/crime_by_borough.tmp
