@@ -15,6 +15,7 @@ Public API:
         opener, lines, footnote, dateline, source_text, source_url, tags
 """
 
+import re
 from datetime import date, datetime, timezone, timedelta
 
 LONDON_TZ = timezone(timedelta(hours=1))  # BST; fine for a first pass, no DST handling yet.
@@ -148,12 +149,54 @@ def _dateline(picks):
     return ''
 
 
+def _period_unit(p):
+    """The DISPLAY unit for a fact's raw `period` string, for _latest_note()
+    alone: 'date' for 'YYYY-MM-DD', 'month' for 'YYYY-MM', 'year' for a bare
+    'YYYY' or a UK financial-year label ('2024-25', DCMS's own shape for
+    museum_facts -- the year it starts, a dash, the last two digits of the
+    year it ends). None for anything else.
+
+    A financial year has the exact same 7-character shape as 'YYYY-MM', so
+    it must be told apart by more than length: '2024-25' as a month fails
+    strptime (25 isn't one), and only then is it tried as a financial year.
+    Before this existed, _latest_note() picked its unit from len(p) alone,
+    which called the British Museum's "2024-25" a month in a live post, 14
+    September 2026, since a financial year has that same 7-character shape.
+
+    Deliberately NOT used by _period_end()/_is_stale(): a financial year's
+    true end date is somewhere in the following March, not a plain calendar
+    year end, and staleness has always treated an unrecognised shape like
+    this one as worth naming regardless -- correct here by accident, but
+    safer to leave alone than to teach the freshness math a fiscal year's
+    real boundary for no evidenced need."""
+    if len(p) == 10:
+        try:
+            datetime.strptime(p, '%Y-%m-%d')
+            return 'date'
+        except ValueError:
+            return None
+    if len(p) == 7:
+        try:
+            datetime.strptime(p, '%Y-%m')
+            return 'month'
+        except ValueError:
+            pass
+        m = re.fullmatch(r'(\d{4})-(\d{2})', p)
+        if m and int(m.group(2)) == (int(m.group(1)) + 1) % 100:
+            return 'year'
+        return None
+    if len(p) == 4 and p.isdigit():
+        return 'year'
+    return None
+
+
 def _period_end(p):
     """Parse a fact's raw `period` string into (end_date, unit) for
     _is_stale(): 'YYYY-MM-DD' -> a date, 'date'; 'YYYY-MM' -> the 1st of
     that month, 'month'; a bare 'YYYY' -> 1 January that year, 'year'. None
-    for anything else (a mixed/unrecognised shape), which _latest_note()
-    treats as always worth naming, matching its pre-13-September behaviour."""
+    for anything else (a mixed/unrecognised shape -- including a financial
+    year like '2024-25', see _period_unit()), which _latest_note() treats
+    as always worth naming, matching its pre-13-September behaviour."""
     if len(p) == 10:
         try:
             return datetime.strptime(p, '%Y-%m-%d').date(), 'date'
@@ -236,7 +279,7 @@ def _latest_note(picks, dateline_text):
     if _is_single_day(picks):
         return f'{_readable_period(p)} is the latest date for which data is available'
     if _is_period_aggregate(picks):
-        unit = 'month' if len(p) == 7 else 'year' if len(p) == 4 else 'period'
+        unit = _period_unit(p) or 'period'
         return f'{_readable_period(p)} is the latest {unit} for which data is available'
     return ''
 

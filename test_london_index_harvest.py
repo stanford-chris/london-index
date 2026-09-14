@@ -624,6 +624,15 @@ class LatestNote(unittest.TestCase):
         self.assertEqual(self.compose(day)['footnote'],
                          '3 September 2026 is the latest date for which data is available')
 
+    def test_a_financial_year_names_itself_a_year_not_a_month(self):
+        # museum_facts's own shape ('2024-25'), 7 characters like 'YYYY-MM'
+        # -- caught calling the British Museum's 2024-25 figures "the
+        # latest month for which data is available" in a live post, 14
+        # September 2026, because the unit was picked from len(p) alone.
+        fy = [H.fact('1', 'a', 's', 'u', period='2024-25'), H.fact('2', 'b', 's', 'u', period='2024-25')]
+        self.assertEqual(self.compose(fy)['footnote'],
+                         '2024-25 is the latest year for which data is available')
+
     def test_it_follows_the_context_note_after_a_middle_dot(self):
         # Footnotes here carry no full stop (MUSEUM_NOTE_GROUP), so the two
         # parts meet on a middle dot, Seoul Index's busmovers arrangement.
