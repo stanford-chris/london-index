@@ -459,7 +459,7 @@ def tfl_get_json(url, timeout=25):
 
 def fact(value, label, source, url, period=None, pair=None, context_note=None,
          dateline_lead=None, fixed_opener=None, map_pin=None, dateline_text=None,
-         map_zone=None):
+         map_zone=None, emoji=None):
     """`pair` tags a fact as part of a pre-detected juxtaposition — a group
     of facts sharing one pair id are offered to the selector as a single
     unit worth building a card around, the same mechanism Seoul Index's
@@ -505,11 +505,21 @@ def fact(value, label, source, url, period=None, pair=None, context_note=None,
     dateline_lead in front, when every pick carries the same one.
 
     `map_zone` names a stored boundary (only 'congestion_charge_zone' so
-    far) for a threaded map reply drawn by london_index_card.render_zone_map."""
+    far) for a threaded map reply drawn by london_index_card.render_zone_map.
+
+    `emoji` puts a leading icon on this fact's own row (london_index_card's
+    per-line {'emoji': ...}), left None for every ordinary index-card vein
+    per the card's own design note — repeating an icon down a column of
+    otherwise-uniform rows read as clutter and was dropped. The animals_top
+    rows are the one exception so far: each row names a different species,
+    so a per-row icon identifies it rather than merely decorating it, the
+    same reasoning behind Seoul Index's own rescue card carrying one per
+    species line."""
     return {'value': value, 'label': label, 'source': source, 'url': url,
             'period': period, 'pair': pair, 'context_note': context_note,
             'dateline_lead': dateline_lead, 'fixed_opener': fixed_opener,
-            'map_pin': map_pin, 'dateline_text': dateline_text, 'map_zone': map_zone}
+            'map_pin': map_pin, 'dateline_text': dateline_text, 'map_zone': map_zone,
+            'emoji': emoji}
 
 
 def pct_of_baseline(fraction):
@@ -2411,6 +2421,18 @@ ANIMAL_PLURALS = {
     'Hedgehog': 'Hedgehogs', 'Lizard': 'Lizards', 'Tortoise': 'Tortoises', 'Fish': 'Fish',
     'Bull': 'Bulls', 'Pigeon': 'Pigeons', 'Lamb': 'Lambs', 'Budgie': 'Budgies', 'Rat': 'Rats',
 }
+# A per-row icon for the animals_top ranked lines — see fact()'s own
+# 'emoji' note for why this vein carries one and the rest of the index
+# card's veins deliberately do not. No entry for 'Ferret': there is no
+# distinct ferret emoji as of this writing, and a wrong-animal icon is
+# worse than a bare row.
+ANIMAL_EMOJI = {
+    'Cat': '🐈', 'Dog': '🐕', 'Bird': '🐦', 'Fox': '🦊', 'Horse': '🐴',
+    'Deer': '🦌', 'Squirrel': '🐿️', 'Rabbit': '🐇', 'Hamster': '🐹',
+    'Cow': '🐄', 'Sheep': '🐑', 'Snake': '🐍', 'Goat': '🐐',
+    'Hedgehog': '🦔', 'Lizard': '🦎', 'Tortoise': '🐢', 'Fish': '🐟',
+    'Bull': '🐂', 'Pigeon': '🕊️', 'Lamb': '🐑', 'Budgie': '🐤', 'Rat': '🐀',
+}
 
 
 def animal_facts(rows, ym, url=ANIMALS_PAGE):
@@ -2418,8 +2440,9 @@ def animal_facts(rows, ym, url=ANIMALS_PAGE):
     Shapes: the month's total and the borough with the most (unpaired), the
     ANIMALS_TOP_N most-rescued kinds of animal ranked ("animals_top"), and
     the brigade's own notional cost of it all (unpaired)."""
-    mk = lambda v, label, pair=None: fact(v, label, ANIMALS_SOURCE, url, period=ym,
-                                          pair=pair, dateline_lead=ANIMALS_LEAD)
+    mk = lambda v, label, pair=None, emoji=None: fact(v, label, ANIMALS_SOURCE, url, period=ym,
+                                                      pair=pair, dateline_lead=ANIMALS_LEAD,
+                                                      emoji=emoji)
     facts = [mk(f'{len(rows):,}', 'Animals rescued')]
     boroughs = {}
     kinds = {}
@@ -2438,7 +2461,7 @@ def animal_facts(rows, ym, url=ANIMALS_PAGE):
         name, n = max(boroughs.items(), key=lambda kv: kv[1])
         facts.append(mk(f'{n:,}', f'Most rescues: {name.title()}'))
     for k, n in sorted(kinds.items(), key=lambda kv: -kv[1])[:ANIMALS_TOP_N]:
-        facts.append(mk(f'{n:,}', ANIMAL_PLURALS[k], 'animals_top'))
+        facts.append(mk(f'{n:,}', ANIMAL_PLURALS[k], 'animals_top', ANIMAL_EMOJI.get(k)))
     if cost:
         facts.append(mk(_pounds(cost), 'Notional cost to the brigade'))
     return facts

@@ -218,6 +218,16 @@ class AnimalFacts(unittest.TestCase):
         labels = [f['label'] for f in H.animal_facts(self.rows(), '2026-07') if f['pair']]
         self.assertFalse(any('Unknown' in l for l in labels))
 
+    def test_ranked_rows_carry_a_species_emoji_and_nothing_else_does(self):
+        facts = H.animal_facts(self.rows(), '2026-07')
+        by_label = {f['label']: f['emoji'] for f in facts}
+        self.assertEqual(by_label['Cats'], '🐈')
+        self.assertEqual(by_label['Birds'], '🐦')
+        self.assertEqual(by_label['Dogs'], '🐕')
+        self.assertIsNone(by_label['Animals rescued'])
+        self.assertIsNone(by_label['Most rescues: Newham'])
+        self.assertIsNone(by_label['Notional cost to the brigade'])
+
 
 class RailFacts(unittest.TestCase):
     def setUp(self):
@@ -404,6 +414,29 @@ class BoroughMap(unittest.TestCase):
             f['id'] = f'y:{i}'
             f['vein'] = 'police'
         self.assertIsNone(C.compose({'opener': {'emoji': '', 'text': 'T'}, 'ids': [f['id'] for f in plain]}, plain)['map_pin'])
+
+    def test_compose_passes_the_animal_emoji_through_and_omits_it_elsewhere(self):
+        import london_index_compose as C
+        rows = [{'AnimalGroupParent': 'Cat', 'Borough': 'NEWHAM', 'IncidentNotionalCost(£)': 500}] * 5 \
+            + [{'AnimalGroupParent': 'Bird', 'Borough': 'CAMDEN', 'IncidentNotionalCost(£)': 500}] * 3 \
+            + [{'AnimalGroupParent': 'Dog', 'Borough': 'NEWHAM', 'IncidentNotionalCost(£)': 1000}] * 2
+        facts = H.animal_facts(rows, '2026-07')
+        for i, f in enumerate(facts):
+            f['id'] = f'z:{i}'
+            f['vein'] = 'lfb_animals'
+        by_label_all = {f['label']: f for f in facts}
+        # Under MAX_LINES=4: the ranked trio plus the unranked total, so both
+        # sides of the rule (a ranked row carries the icon, the total does not)
+        # are exercised in one compose() call.
+        ids = [by_label_all['Animals rescued']['id'], by_label_all['Cats']['id'],
+               by_label_all['Birds']['id'], by_label_all['Dogs']['id']]
+        c = C.compose({'opener': {'emoji': '🚒', 'text': 'T'}, 'ids': ids}, facts)
+        by_label = {l['label']: l.get('emoji') for l in c['lines']}
+        self.assertEqual(by_label['Cats'], '🐈')
+        self.assertEqual(by_label['Birds'], '🐦')
+        self.assertEqual(by_label['Dogs'], '🐕')
+        total_line = next(l for l in c['lines'] if l['label'] == 'Animals rescued')
+        self.assertNotIn('emoji', total_line)
 
 
 class WholeBoroughCache(unittest.TestCase):

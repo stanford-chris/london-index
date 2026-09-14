@@ -290,7 +290,11 @@ def compose(sel, pool):
     if len(picks) < 2:
         raise ValueError(f'compose() needs at least 2 valid picks, got {len(picks)}')
 
-    lines = [{'label': f['label'], 'value': f['value']} for f in picks]
+    # A row's own 'emoji' rides through only when a vein set one on the
+    # fact — see fact()'s docstring for why animals_top is currently the
+    # only vein that does; every other line renders exactly as before.
+    lines = [{'label': f['label'], 'value': f['value'],
+             **({'emoji': f['emoji']} if f.get('emoji') else {})} for f in picks]
 
     # Credit every distinct source, in the order its first pick appears —
     # this is the reply's job, as a real clickable link per source. The
