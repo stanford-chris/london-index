@@ -130,6 +130,7 @@ Usage:
 import argparse
 import json
 import re
+import statistics
 import subprocess
 import sys
 import tempfile
@@ -137,6 +138,7 @@ import time
 import urllib.parse
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 # Every Underground station whose crowding endpoint actually returns live
 # data, not a hand-picked subset - widened from the original 12-hub list on
@@ -829,6 +831,23 @@ def _pct_change(now, before):
     if pct < 0:
         return f'−{abs(pct)}%'
     return '0%'
+
+
+def _pct_point_change(now_frac, before_frac):
+    """Signed whole-percentage-POINT difference between two 0-1 shares, as
+    a card value: "+4 pts", "−2 pts", "0 pts". Deliberately distinct from
+    _pct_change() — that one is a RELATIVE percent change, which for two
+    numbers that are already percentages (an on-time share now against a
+    typical one) would mean a move from 92% to 95.5% reads as "+4%", easy
+    to misread as a percentage-point move when it is not. His call,
+    15 September 2026, choosing point difference over relative change for
+    exactly this reason."""
+    diff = round((now_frac - before_frac) * 100)
+    if diff > 0:
+        return f'+{diff} pts'
+    if diff < 0:
+        return f'−{abs(diff)} pts'
+    return '0 pts'
 
 
 def _category_name(cat):
@@ -2631,13 +2650,49 @@ RAIL_TOP_N = 4
 # so the late ones can be counted by company. At least RAIL_OPS_MIN
 # operators must have a late train before the ranked group is made, or
 # one late Thameslink is a league table of one. Added 12 September 2026.
+#
+# ⚠️ Ranked by SHARE of that operator's own departures, not raw count,
+# since 15 September 2026 — Chris's own point: a raw-count ranking always
+# favours whichever operator runs the most trains out of London, which is
+# a fact about its timetable, not its punctuality. RAIL_OPS_MIN_SERVICES is
+# the floor an operator's own total departures in the window must clear
+# before its share counts as a real reading rather than a small sample
+# reading 100% off one late train — a judgement call, not yet measured
+# against a real distribution of operator volumes; revisit once there is
+# a season of real cards to look at.
 RAIL_OPS_MIN = 3
+RAIL_OPS_MIN_SERVICES = 4
+RAIL_OPS_NOTE = (f'Percent of that operator’s own departures running late, not a raw count '
+                 f'— operators with fewer than {RAIL_OPS_MIN_SERVICES} trains due in the '
+                 f'window are left out')
 # Under this many departures across every terminus the boards are the
 # small hours (9 at 1:36 a.m. on 12 September 2026), not a city, and no
 # card is made. Under RAIL_MIN_STATIONS answering, a partial London is not
 # ranked at all.
 RAIL_MIN_DEPARTURES = 20
 RAIL_MIN_STATIONS = 10
+
+# --- Rail departures: our own history, for a same-hour baseline ------------
+# National Rail publishes no "typical" figure for a station's departure
+# board the way TfL does for Underground crowding (tfl_crowding's own
+# baseline), so the only baseline available is one built from this
+# account's own past readings. Added 15 September 2026, after Chris judged
+# a bare live snapshot "not very interesting" on its own — see the vs-typical
+# fact in rail_facts() below.
+#
+# ⚠️ Matched on LONDON weekday + hour, not an exact time-of-week: this
+# account has no fixed posting clock, so a reading "at the same time last
+# week" essentially never exists — the closest available comparison is the
+# same weekday and the same hour, mirroring Seoul Index's own "a typical
+# Tuesday" baseline (median of past same-weekday readings, minimum 3,
+# up to 8). RAIL_BASELINE_MIN_SAMPLES/MAX_SAMPLES are that same pair of
+# numbers, kept for the same reason: too few samples is a guess dressed as
+# a fact, and there is no reason to look further back than eight weeks of
+# a London commute.
+RAIL_HISTORY_PATH = Path(__file__).parent / 'rail_history.jsonl'
+RAIL_BASELINE_MIN_SAMPLES = 3
+RAIL_BASELINE_MAX_SAMPLES = 8
+LONDON_TZ = ZoneInfo('Europe/London')
 
 
 def _rdm_key():
@@ -2675,33 +2730,118 @@ def classify_departure(svc):
     return 'other'
 
 
-def rail_facts(boards, url=RAIL_PAGE):
-    """`boards` maps terminus name -> list of train services (the board's
-    trainServices). Two shapes:
-      - "rail_all": trains departing within the hour, on time, running late,
-        cancelled (any 2 to 4, fixed opener)
-      - "rail_top": the RAIL_TOP_N termini with the most departures,
-        ranked
-      - "rail_ops_top": operators ranked by trains running late, when
-        RAIL_OPS_MIN or more have one"""
-    mk = lambda v, label, pair: fact(f'{v:,}', label, RAIL_SOURCE, url, pair=pair,
-                                     context_note=RAIL_NOTE, dateline_lead=RAIL_LEAD)
+def _rail_counts(boards):
+    """One pass over every board's services: the aggregate on-time/late/
+    cancelled/other counts, each station's own departure count, each
+    operator's own late count against its own total departures in the
+    window, and — across every board combined, not per station — how
+    many distinct places these services are bound for and how many go to
+    each. Shared by rail_facts() (the card), harvest_rail_departures()
+    (the history snapshot) and rail_baseline() (indirectly, via the
+    snapshot it reads back) — one counting rule, not three."""
     counts = {'on time': 0, 'late': 0, 'cancelled': 0, 'other': 0}
     per = {}
     late_by_operator = {}
+    total_by_operator = {}
+    dests = {}
     for name, services in boards.items():
         per[name] = len(services)
         for svc in services:
             state = classify_departure(svc)
             counts[state] += 1
             op = (svc.get('operator') or '').strip()
-            if state == 'late' and op:
-                late_by_operator[op] = late_by_operator.get(op, 0) + 1
+            if op:
+                total_by_operator[op] = total_by_operator.get(op, 0) + 1
+                if state == 'late':
+                    late_by_operator[op] = late_by_operator.get(op, 0) + 1
+            for d in svc.get('destination') or []:
+                dn = (d.get('locationName') or '').strip()
+                if dn:
+                    dests[dn] = dests.get(dn, 0) + 1
+    return {'counts': counts, 'per': per, 'late_by_operator': late_by_operator,
+            'total_by_operator': total_by_operator, 'dests': dests}
+
+
+def _share_pct(numerator, denominator):
+    """Whole-percent share as a card value ("38%"), or "<1%" for anything
+    nonzero that would otherwise round down to a literal-looking "0%" —
+    the same ambiguity pct_of_baseline() was written to avoid for
+    tfl_crowding. None when there is nothing to divide by."""
+    if not denominator:
+        return None
+    pct = numerator / denominator * 100
+    if 0 < pct < 0.5:
+        return '<1%'
+    return f'{pct:.0f}%'
+
+
+def rail_facts(boards, url=RAIL_PAGE, baseline_total=None, baseline_on_time_share=None, now=None):
+    """`boards` maps terminus name -> list of train services (the board's
+    trainServices). Shapes:
+      - "rail_all": trains departing within the hour, on time, running late,
+        cancelled (any 2 to 4, fixed opener), plus — when given —
+        how that departure count and how the on-time share each compare
+        with a typical reading for this weekday and hour (see
+        rail_baseline() and rail_baseline_on_time_share())
+      - "rail_top": the RAIL_TOP_N termini with the most departures,
+        ranked
+      - "rail_ops_top": operators ranked by the SHARE of their own
+        departures running late, when RAIL_OPS_MIN or more clear the
+        RAIL_OPS_MIN_SERVICES floor and have at least one late train
+
+    `baseline_total`, `baseline_on_time_share` and `now` are supplied by
+    the caller (harvest_rail_departures reads the history file and the
+    clock; tests pass fixed values directly) so this function stays a
+    pure read of `boards` plus whatever comparisons it is handed — it
+    does no file I/O and no clock reads of its own.
+
+    Where these trains are actually going is deliberately NOT a fifth
+    label/value row — his call, 15 September 2026, after "I do not want
+    the equivalent of a departures board" made it clear that bolting
+    another line onto the same table wasn't the fix. It reads as a
+    sentence in the footnote instead, folded into RAIL_NOTE for the
+    rail_all pair only (rail_top's own context_note is unaffected)."""
+    agg = _rail_counts(boards)
+    counts, per, dests = agg['counts'], agg['per'], agg['dests']
     total = sum(per.values())
-    facts = [mk(total, 'Departing within the hour', 'rail_all'),
-             mk(counts['on time'], 'On time', 'rail_all'),
-             mk(counts['late'], 'Running late', 'rail_all'),
-             mk(counts['cancelled'], 'Cancelled', 'rail_all')]
+    all_note = RAIL_NOTE
+    if total > 0 and dests:
+        leader, _n = max(dests.items(), key=lambda kv: (kv[1], kv[0]))
+        all_note = (f'{RAIL_NOTE}. Bound for {len(dests)} different places, '
+                   f'more to {leader} than anywhere else.')
+    mk_top = lambda v, label: fact(f'{v:,}', label, RAIL_SOURCE, url, pair='rail_top',
+                                   context_note=RAIL_NOTE, dateline_lead=RAIL_LEAD)
+    mk_all = lambda v, label: fact(f'{v:,}', label, RAIL_SOURCE, url, pair='rail_all',
+                                   context_note=all_note, dateline_lead=RAIL_LEAD)
+    mk_cmp = lambda v, label: fact(v, label, RAIL_SOURCE, url, pair='rail_all',
+                                   context_note=all_note, dateline_lead=RAIL_LEAD)
+    mk_ops = lambda v, label: fact(v, label, RAIL_SOURCE, url, pair='rail_ops_top',
+                                   context_note=RAIL_OPS_NOTE, dateline_lead=RAIL_LEAD)
+    facts = [mk_all(total, 'Departing within the hour'),
+             mk_all(counts['on time'], 'On time'),
+             mk_all(counts['late'], 'Running late'),
+             mk_all(counts['cancelled'], 'Cancelled')]
+    weekday = (now or datetime.now(LONDON_TZ)).strftime('%A')
+    if baseline_total is not None:
+        change = _pct_change(total, baseline_total)
+        if change is not None:
+            # "Change from a typical <weekday>", matching spotlight_facts()'s
+            # own "Change since <month>" shape rather than inventing a new
+            # one. No trailing ", this hour": the dateline (RAIL_LEAD) already
+            # says "Departures in the next hour", so the label repeating it
+            # would be the exact redundancy the account's own house style
+            # (no word the title already carries) rules out elsewhere.
+            facts.append(mk_cmp(change, f'Change from a typical {weekday}'))
+    if baseline_on_time_share is not None and total > 0:
+        # A signed PERCENTAGE-POINT difference, not _pct_change()'s relative
+        # percent — see _pct_point_change()'s own note on why, for a metric
+        # that is already a percentage, the two read as easily confused but
+        # different numbers. Labelled "On time, ..." to read as the
+        # comparison version of the "On time" line above it, the same
+        # relationship "Change from a typical <weekday>" has to "Departing
+        # within the hour".
+        facts.append(mk_cmp(_pct_point_change(counts['on time'] / total, baseline_on_time_share),
+                            f'On time, change from a typical {weekday}'))
     # A ranked "busiest" list never carries a station with nothing due: at
     # 1:43 a.m. on 12 September 2026 a render bypassing the floor showed
     # King's Cross and Euston at 0 in third and fourth place. The group is
@@ -2709,11 +2849,100 @@ def rail_facts(boards, url=RAIL_PAGE):
     busy = [(name, n) for name, n in sorted(per.items(), key=lambda kv: -kv[1]) if n > 0]
     if len(busy) >= RAIL_TOP_N:
         for name, n in busy[:RAIL_TOP_N]:
-            facts.append(mk(n, name, 'rail_top'))
-    if len(late_by_operator) >= RAIL_OPS_MIN:
-        for op, n in sorted(late_by_operator.items(), key=lambda kv: (-kv[1], kv[0]))[:RAIL_TOP_N]:
-            facts.append(mk(n, op, 'rail_ops_top'))
+            facts.append(mk_top(n, name))
+    late_by_operator, total_by_operator = agg['late_by_operator'], agg['total_by_operator']
+    qualifying = [(op, late_by_operator[op], total_by_operator[op]) for op in late_by_operator
+                  if total_by_operator[op] >= RAIL_OPS_MIN_SERVICES]
+    if len(qualifying) >= RAIL_OPS_MIN:
+        ranked = sorted(qualifying, key=lambda t: (-(t[1] / t[2]), -t[1], t[0]))[:RAIL_TOP_N]
+        for op, late, total_op in ranked:
+            facts.append(mk_ops(_share_pct(late, total_op), op))
     return facts
+
+
+def _rail_snapshot_rows():
+    """Every readable row in RAIL_HISTORY_PATH, file order (oldest first).
+    An unreadable line is skipped, never fatal — this is a best-effort
+    archive of our own past readings, not a source of truth anything else
+    depends on existing. Reads the module attribute directly (not a
+    default-argument capture of it) so a test that patches
+    H.RAIL_HISTORY_PATH is actually honoured."""
+    if not RAIL_HISTORY_PATH.exists():
+        return []
+    rows = []
+    for line in RAIL_HISTORY_PATH.read_text(encoding='utf-8').splitlines():
+        try:
+            rows.append(json.loads(line))
+        except ValueError:
+            continue
+    return rows
+
+
+def _log_rail_snapshot(total, on_time, late, cancelled, now=None):
+    """Append one reading to RAIL_HISTORY_PATH. Called only for a clean,
+    full-coverage read (see harvest_rail_departures) — a partial one would
+    quietly bias every future baseline low for no reason connected to
+    real service levels."""
+    now = now or datetime.now(LONDON_TZ)
+    row = {'ts': now.isoformat(), 'total': total, 'on_time': on_time,
+           'late': late, 'cancelled': cancelled}
+    with open(RAIL_HISTORY_PATH, 'a', encoding='utf-8') as f:
+        f.write(json.dumps(row) + '\n')
+
+
+def _matching_rail_history(now=None):
+    """Up to RAIL_BASELINE_MAX_SAMPLES past history rows sharing this
+    moment's London weekday and hour, most recent first — a row whose
+    timestamp doesn't parse is skipped and never occupies a slot. Shared
+    by rail_baseline() and rail_baseline_on_time_share() so both read the
+    history under one matching rule rather than two that could drift."""
+    now = now or datetime.now(LONDON_TZ)
+    weekday, hour = now.weekday(), now.hour
+    matches = []
+    for row in reversed(_rail_snapshot_rows()):
+        try:
+            ts = datetime.fromisoformat(row['ts'])
+        except (KeyError, ValueError, TypeError):
+            continue
+        if ts.tzinfo is None:
+            continue
+        ts = ts.astimezone(LONDON_TZ)
+        if ts.weekday() == weekday and ts.hour == hour:
+            matches.append(row)
+            if len(matches) >= RAIL_BASELINE_MAX_SAMPLES:
+                break
+    return matches
+
+
+def rail_baseline(now=None):
+    """Median total departures from up to RAIL_BASELINE_MAX_SAMPLES past
+    readings sharing this moment's London weekday and hour; None under
+    RAIL_BASELINE_MIN_SAMPLES usable readings — see the module note above
+    RAIL_HISTORY_PATH for why weekday+hour and not an exact time-of-week."""
+    totals = [r['total'] for r in _matching_rail_history(now) if isinstance(r.get('total'), (int, float))]
+    if len(totals) < RAIL_BASELINE_MIN_SAMPLES:
+        return None
+    return statistics.median(totals)
+
+
+def rail_baseline_on_time_share(now=None):
+    """Median on-time SHARE (on_time / total, a 0-1 fraction) over the
+    same matching readings rail_baseline() draws on — the median of each
+    reading's OWN share, not the ratio of the two medians, so one
+    unusually quiet or unusually cancelled reading can't distort the
+    comparison by moving only one side of a fraction. None under
+    RAIL_BASELINE_MIN_SAMPLES usable readings. A reading with a zero
+    total is excluded rather than dividing by it — should never happen
+    given harvest_rail_departures' own RAIL_MIN_DEPARTURES floor, but
+    this must not crash if it somehow did."""
+    shares = []
+    for row in _matching_rail_history(now):
+        total, on_time = row.get('total'), row.get('on_time')
+        if isinstance(total, (int, float)) and isinstance(on_time, (int, float)) and total > 0:
+            shares.append(on_time / total)
+    if len(shares) < RAIL_BASELINE_MIN_SAMPLES:
+        return None
+    return statistics.median(shares)
 
 
 _RAIL_MEMO = {}
@@ -2793,9 +3022,17 @@ def harvest_rail_departures():
     total = sum(len(v) for v in boards.values())
     if total < RAIL_MIN_DEPARTURES:
         return [], f'only {total} departures due across the termini; boards too quiet for a card'
-    facts = rail_facts(boards)
+    now = datetime.now(LONDON_TZ)
+    facts = rail_facts(boards, baseline_total=rail_baseline(now=now),
+                       baseline_on_time_share=rail_baseline_on_time_share(now=now), now=now)
     if failed:
         facts[0]['note'] = f'{len(failed)} of {len(RAIL_TERMINI)} termini unusable: {failed}'
+    else:
+        # Only a full-coverage read is archived — see _log_rail_snapshot's
+        # own note on why a partial one must not become a baseline sample.
+        agg = _rail_counts(boards)
+        _log_rail_snapshot(total, agg['counts']['on time'], agg['counts']['late'],
+                           agg['counts']['cancelled'], now=now)
     return facts, None
 
 

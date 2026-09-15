@@ -29,6 +29,14 @@ class Months(unittest.TestCase):
         self.assertEqual(H._pct_change(100, 100), '0%')
         self.assertIsNone(H._pct_change(5, 0))
 
+    def test_pct_point_change_is_a_point_difference_not_a_relative_change(self):
+        # 92% -> 96%: a +4 point move, NOT the +4.3% relative change
+        # _pct_change would report for the same two numbers — the whole
+        # reason this is a separate function.
+        self.assertEqual(H._pct_point_change(0.96, 0.92), '+4 pts')
+        self.assertEqual(H._pct_point_change(0.88, 0.92), '−4 pts')
+        self.assertEqual(H._pct_point_change(0.92, 0.92), '0 pts')
+
     def test_category_names(self):
         self.assertEqual(H._category_name('other-theft'), 'Other theft')
         self.assertEqual(H._category_name('anti-social-behaviour'), 'Anti-social behaviour')
@@ -270,16 +278,102 @@ class RailFacts(unittest.TestCase):
         self.assertEqual(len(top), 4)
         self.assertNotIn('0', [v for _, v in top])
 
-    def test_late_by_operator_needs_three_operators_and_ranks_them(self):
+    def test_ops_top_needs_three_qualifying_operators(self):
         def svc(op, etd='09:07'):
             return {'std': '09:00', 'etd': etd, 'isCancelled': False, 'operator': op}
         boards = {'Waterloo': [svc('South Western Railway')] * 3 + [svc('South Western Railway', 'On time')],
                   'Victoria': [svc('Southern')] * 2 + [svc('Southeastern', 'Cancelled')]}
-        # Two operators late (Southeastern is cancelled, not late): no group.
+        # Two operators late (Southeastern is cancelled, not late), and
+        # neither clears RAIL_OPS_MIN_SERVICES: no group either way.
         self.assertEqual([f for f in H.rail_facts(boards) if f['pair'] == 'rail_ops_top'], [])
+        # A third operator with a late train, but it doesn't clear the
+        # service floor (1 departure) and neither do the other two (4, 2):
+        # still no group — RAIL_OPS_MIN needs three QUALIFYING operators,
+        # not just three with a late train somewhere.
         boards['Euston'] = [svc('Avanti West Coast', 'Delayed')]
+        self.assertEqual([f for f in H.rail_facts(boards) if f['pair'] == 'rail_ops_top'], [])
+
+    def test_ops_top_ranks_by_share_of_the_operators_own_departures(self):
+        def svc(op, etd='09:07'):
+            return {'std': '09:00', 'etd': etd, 'isCancelled': False, 'operator': op}
+        def ontime(op):
+            return {'std': '09:00', 'etd': 'On time', 'isCancelled': False, 'operator': op}
+        boards = {
+            # A big operator: 60 departures, 5 late -> 8%.
+            'Waterloo': [svc('South Western Railway')] * 5 + [ontime('South Western Railway')] * 55,
+            # A small operator: 8 departures, 3 late -> 38%. A raw-count
+            # ranking would put this well behind SWR's 5; by share it
+            # should lead SWR, which is the whole point of the change.
+            'Paddington': [svc('Great Western Railway')] * 3 + [ontime('Great Western Railway')] * 5,
+            # The worst share of the three: 5 departures, 2 late -> 40%.
+            'Euston': [svc('Avanti West Coast')] * 2 + [ontime('Avanti West Coast')] * 3,
+        }
         ops = [(f['label'], f['value']) for f in H.rail_facts(boards) if f['pair'] == 'rail_ops_top']
-        self.assertEqual(ops, [('South Western Railway', '3'), ('Southern', '2'), ('Avanti West Coast', '1')])
+        self.assertEqual(ops, [('Avanti West Coast', '40%'), ('Great Western Railway', '38%'),
+                               ('South Western Railway', '8%')])
+
+    def test_ops_top_excludes_an_operator_below_the_service_floor(self):
+        def svc(op, etd='09:07'):
+            return {'std': '09:00', 'etd': etd, 'isCancelled': False, 'operator': op}
+        def ontime(op):
+            return {'std': '09:00', 'etd': 'On time', 'isCancelled': False, 'operator': op}
+        boards = {
+            'Waterloo': [svc('South Western Railway')] * 5 + [ontime('South Western Railway')] * 55,
+            'Paddington': [svc('Great Western Railway')] * 3 + [ontime('Great Western Railway')] * 5,
+            'Victoria': [svc('Southern')] * 2 + [ontime('Southern')] * 3,
+            # Only 1 departure total: a lone late train here must not read
+            # as "100% of Avanti's trains are late".
+            'Euston': [svc('Avanti West Coast')],
+        }
+        facts = [f for f in H.rail_facts(boards) if f['pair'] == 'rail_ops_top']
+        labels = [f['label'] for f in facts]
+        self.assertNotIn('Avanti West Coast', labels)
+        self.assertIn('Southern', labels)   # the group still forms on the other three
+
+    def dest_svc(self, dest, std='09:00', etd='On time'):
+        return {'std': std, 'etd': etd, 'isCancelled': False, 'destination': [{'locationName': dest}]}
+
+    def test_no_destination_data_leaves_the_note_unchanged(self):
+        # None of the existing tests' fixtures carry a 'destination' field
+        # at all — this pins that the plain RAIL_NOTE is exactly what a
+        # real board with no destination info (or this account before the
+        # feature existed) would still show.
+        boards = {'Waterloo': [self.svc('09:00', 'On time')] * 20}
+        facts = H.rail_facts(boards)
+        notes = {f['context_note'] for f in facts if f['pair'] == 'rail_all'}
+        self.assertEqual(notes, {H.RAIL_NOTE})
+
+    def test_destination_reaches_the_footnote_not_a_new_row(self):
+        boards = {'Waterloo': [self.dest_svc('Woking')] * 8 + [self.dest_svc('Reading')] * 3
+                             + [self.dest_svc('Basingstoke')] * 2}
+        facts = H.rail_facts(boards)
+        # It is prose in the existing context_note, never a fifth label —
+        # his instruction, 15 September 2026 ("I do not want the
+        # equivalent of a departures board").
+        self.assertFalse(any('woking' in (f['label'] or '').lower() for f in facts))
+        rail_all_notes = {f['context_note'] for f in facts if f['pair'] == 'rail_all'}
+        self.assertEqual(len(rail_all_notes), 1)
+        note = rail_all_notes.pop()
+        self.assertIn('Bound for 3 different places', note)
+        self.assertIn('more to Woking than anywhere else', note)
+        self.assertTrue(note.startswith(H.RAIL_NOTE))
+
+    def test_destination_tie_break_matches_station_facts_own_convention(self):
+        # max() on (count, name) picks the alphabetically LAST name on a
+        # tie — the exact same expression station_facts() already uses
+        # for its own single-station "Most trains to" pick, so a tie
+        # resolves the same way here as it does there.
+        boards = {'Waterloo': [self.dest_svc('Woking')] * 5 + [self.dest_svc('Basingstoke')] * 5}
+        facts = H.rail_facts(boards)
+        note = next(f['context_note'] for f in facts if f['pair'] == 'rail_all')
+        self.assertIn('more to Woking than anywhere else', note)
+
+    def test_rail_top_keeps_the_plain_note_even_when_destinations_exist(self):
+        boards = {'Waterloo': [self.dest_svc('Woking')] * 12, 'Euston': [self.dest_svc('Crewe')] * 10,
+                  'Victoria': [self.dest_svc('Brighton')] * 8, 'Paddington': [self.dest_svc('Reading')] * 6}
+        facts = H.rail_facts(boards)
+        top_notes = {f['context_note'] for f in facts if f['pair'] == 'rail_top'}
+        self.assertEqual(top_notes, {H.RAIL_NOTE})   # not the destination sentence
 
     def test_no_key_is_a_named_refusal_not_a_crash(self):
         with unittest.mock.patch.object(H, '_rdm_key', return_value=None):
@@ -310,6 +404,220 @@ class RailFacts(unittest.TestCase):
             facts, err = H.harvest_rail_departures()
         self.assertEqual(facts, [])
         self.assertIn('termini answered', err)
+
+
+import statistics  # noqa: E402  (used by RailBaseline)
+import tempfile  # noqa: E402  (used by RailBaseline / RailDeparturesLogging)
+import unittest.mock  # noqa: E402  (already imported above; re-stated for clarity here)
+from datetime import timedelta  # noqa: E402
+
+
+class RailBaseline(unittest.TestCase):
+    """rail_baseline()/_log_rail_snapshot()/_rail_snapshot_rows() — the
+    account's own history of past readings, added 15 September 2026 so a
+    live departures card can say whether now is unusual rather than just
+    stating a number with nothing to read it against. Every test here
+    works against a throwaway history file, never RAIL_HISTORY_PATH's
+    real one — see the dry-run-guard lesson in CLAUDE.md: a guard checked
+    only at the harvest entry point does not stop a test that calls the
+    lower-level functions directly, so the file itself must be swapped."""
+
+    def setUp(self):
+        self._tmp_dir = tempfile.TemporaryDirectory()
+        self._history_path = Path(self._tmp_dir.name) / 'rail_history.jsonl'
+        self._patch = unittest.mock.patch.object(H, 'RAIL_HISTORY_PATH', self._history_path)
+        self._patch.start()
+
+    def tearDown(self):
+        self._patch.stop()
+        self._tmp_dir.cleanup()
+
+    def test_log_then_read_round_trips(self):
+        now = H.datetime(2026, 9, 15, 20, 34, tzinfo=H.LONDON_TZ)
+        H._log_rail_snapshot(379, 362, 16, 1, now=now)
+        rows = H._rail_snapshot_rows()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]['total'], 379)
+        self.assertEqual(rows[0]['on_time'], 362)
+        self.assertEqual(rows[0]['late'], 16)
+        self.assertEqual(rows[0]['cancelled'], 1)
+
+    def test_an_unreadable_line_is_skipped_not_fatal(self):
+        self._history_path.write_text('not json\n{"ts": "bad", "total": 1}\n', encoding='utf-8')
+        # The second line parses as JSON but its "ts" doesn't parse as a
+        # datetime — rail_baseline must skip it too, not raise.
+        self.assertIsNone(H.rail_baseline(now=H.datetime(2026, 9, 15, 20, 34, tzinfo=H.LONDON_TZ)))
+
+    def test_baseline_needs_three_matching_samples(self):
+        base = H.datetime(2026, 9, 1, 20, 15, tzinfo=H.LONDON_TZ)
+        now = base + timedelta(days=14, hours=0, minutes=19)   # same weekday, same hour, 2 weeks on
+        H._log_rail_snapshot(300, 280, 15, 5, now=base)
+        self.assertIsNone(H.rail_baseline(now=now))
+        H._log_rail_snapshot(320, 300, 15, 5, now=base + timedelta(days=7))
+        self.assertIsNone(H.rail_baseline(now=now))   # still only 2
+        H._log_rail_snapshot(340, 310, 20, 10, now=base + timedelta(days=14))
+        self.assertEqual(H.rail_baseline(now=now), 320)   # median of 300, 320, 340
+
+    def test_baseline_ignores_a_different_weekday_or_hour(self):
+        now = H.datetime(2026, 9, 15, 20, 34, tzinfo=H.LONDON_TZ)   # a Tuesday, hour 20
+        H._log_rail_snapshot(300, 280, 15, 5, now=now - timedelta(days=7))    # same weekday+hour: matches
+        H._log_rail_snapshot(999, 900, 90, 9, now=now - timedelta(days=6))    # a day off: wrong weekday
+        H._log_rail_snapshot(111, 100, 10, 1, now=now.replace(hour=8) - timedelta(days=7))  # right weekday, hour 8
+        self.assertIsNone(H.rail_baseline(now=now))   # only one true (weekday, hour) match so far
+
+    def test_baseline_keeps_only_the_most_recent_max_samples(self):
+        now = H.datetime(2026, 9, 15, 20, 34, tzinfo=H.LONDON_TZ)
+        # Ten matching weeks, oldest to newest, each a distinct value so the
+        # median identifies exactly which eight were kept.
+        for i in range(10, 0, -1):
+            H._log_rail_snapshot(100 + i, 90, 5, 1, now=now - timedelta(weeks=i))
+        rows = H._rail_snapshot_rows()
+        self.assertEqual(len(rows), 10)
+        # Only the 8 most recent (i=8..1, values 108..101) should count;
+        # the two oldest (i=10, i=9 -> 110, 109) must be dropped.
+        self.assertEqual(H.rail_baseline(now=now), statistics.median(range(101, 109)))
+
+    def test_on_time_share_needs_three_matching_samples(self):
+        now = H.datetime(2026, 9, 15, 20, 34, tzinfo=H.LONDON_TZ)
+        H._log_rail_snapshot(300, 276, 20, 4, now=now - timedelta(weeks=1))   # 92%
+        self.assertIsNone(H.rail_baseline_on_time_share(now=now))
+        H._log_rail_snapshot(300, 270, 25, 5, now=now - timedelta(weeks=2))   # 90%
+        self.assertIsNone(H.rail_baseline_on_time_share(now=now))   # still only 2
+        H._log_rail_snapshot(300, 288, 10, 2, now=now - timedelta(weeks=3))   # 96%
+        self.assertAlmostEqual(H.rail_baseline_on_time_share(now=now), 0.92)   # median of .92,.90,.96
+
+    def test_on_time_share_is_the_median_of_each_readings_own_share(self):
+        # A big quiet reading and a small busy one must not let one side of
+        # the fraction (total or on_time) dominate the other's median the
+        # way a "median of totals / median of on-times" shortcut would.
+        now = H.datetime(2026, 9, 15, 20, 34, tzinfo=H.LONDON_TZ)
+        H._log_rail_snapshot(500, 100, 390, 10, now=now - timedelta(weeks=1))   # 20% on time, huge total
+        H._log_rail_snapshot(10, 9, 1, 0, now=now - timedelta(weeks=2))         # 90% on time, tiny total
+        H._log_rail_snapshot(50, 45, 5, 0, now=now - timedelta(weeks=3))        # 90% on time
+        # Median of the three SHARES (0.2, 0.9, 0.9) is 0.9 — not the ratio
+        # of median-total (50) to median-on-time (45), which would also be
+        # 0.9 here by coincidence, so this fixture alone wouldn't catch a
+        # ratio-of-medians bug; the assertion is on the actual value used.
+        self.assertAlmostEqual(H.rail_baseline_on_time_share(now=now), 0.9)
+
+    def test_on_time_share_ignores_a_different_weekday_or_hour(self):
+        now = H.datetime(2026, 9, 15, 20, 34, tzinfo=H.LONDON_TZ)   # a Tuesday, hour 20
+        H._log_rail_snapshot(300, 276, 20, 4, now=now - timedelta(days=7))    # matches
+        H._log_rail_snapshot(300, 100, 190, 10, now=now - timedelta(days=6))  # wrong weekday
+        self.assertIsNone(H.rail_baseline_on_time_share(now=now))   # only one true match so far
+
+    def test_on_time_share_skips_a_zero_total_reading(self):
+        now = H.datetime(2026, 9, 15, 20, 34, tzinfo=H.LONDON_TZ)
+        H._log_rail_snapshot(300, 276, 20, 4, now=now - timedelta(weeks=1))
+        H._log_rail_snapshot(300, 270, 25, 5, now=now - timedelta(weeks=2))
+        H._log_rail_snapshot(0, 0, 0, 0, now=now - timedelta(weeks=3))   # would ZeroDivisionError if not skipped
+        self.assertIsNone(H.rail_baseline_on_time_share(now=now))   # only 2 usable readings
+
+
+class RailBaselineFact(unittest.TestCase):
+    """The "Change from a typical <weekday>" facts rail_facts() adds when
+    given baseline_total and/or baseline_on_time_share — pure functions of
+    what they're handed, so these tests need no history file at all."""
+
+    def svc(self, std, etd):
+        return {'std': std, 'etd': etd, 'isCancelled': False}
+
+    def test_no_baseline_given_means_no_such_fact(self):
+        boards = {'Waterloo': [self.svc('09:00', 'On time')] * 25}
+        facts = H.rail_facts(boards)
+        self.assertFalse(any('typical' in f['label'].lower() for f in facts))
+
+    def test_departures_baseline_fact_is_a_signed_pct_change_naming_the_weekday(self):
+        boards = {'Waterloo': [self.svc('09:00', 'On time')] * 25}
+        now = H.datetime(2026, 9, 15, 20, 34, tzinfo=H.LONDON_TZ)   # a Tuesday
+        facts = H.rail_facts(boards, baseline_total=20, now=now)
+        matches = [f for f in facts if 'typical' in f['label'].lower()]
+        self.assertEqual(len(matches), 1)
+        baseline_fact = matches[0]
+        self.assertEqual(baseline_fact['value'], '+25%')
+        self.assertIn('Tuesday', baseline_fact['label'])
+        self.assertEqual(baseline_fact['pair'], 'rail_all')
+
+    def test_a_zero_baseline_adds_no_fact_rather_than_dividing_by_zero(self):
+        boards = {'Waterloo': [self.svc('09:00', 'On time')] * 25}
+        facts = H.rail_facts(boards, baseline_total=0, now=H.datetime(2026, 9, 15, 20, 34, tzinfo=H.LONDON_TZ))
+        self.assertFalse(any('typical' in f['label'].lower() for f in facts))
+
+    def test_on_time_share_baseline_fact_is_a_signed_point_change(self):
+        # 25 on time of 25 total = 100% on time now; a typical 92% means a
+        # +8-point move, not _pct_change()'s +9% relative reading.
+        boards = {'Waterloo': [self.svc('09:00', 'On time')] * 25}
+        now = H.datetime(2026, 9, 15, 20, 34, tzinfo=H.LONDON_TZ)   # a Tuesday
+        facts = H.rail_facts(boards, baseline_on_time_share=0.92, now=now)
+        matches = [f for f in facts if 'typical' in f['label'].lower()]
+        self.assertEqual(len(matches), 1)
+        baseline_fact = matches[0]
+        self.assertEqual(baseline_fact['value'], '+8 pts')
+        self.assertIn('On time', baseline_fact['label'])
+        self.assertIn('Tuesday', baseline_fact['label'])
+        self.assertEqual(baseline_fact['pair'], 'rail_all')
+
+    def test_both_baselines_can_appear_together_and_read_distinctly(self):
+        boards = {'Waterloo': [self.svc('09:00', 'On time')] * 20 + [self.svc('09:00', '09:07')] * 5}
+        now = H.datetime(2026, 9, 15, 20, 34, tzinfo=H.LONDON_TZ)
+        facts = H.rail_facts(boards, baseline_total=20, baseline_on_time_share=0.7, now=now)
+        matches = {f['label']: f['value'] for f in facts if 'typical' in f['label'].lower()}
+        self.assertEqual(len(matches), 2)
+        self.assertTrue(any(v.endswith('%') for v in matches.values()))
+        self.assertTrue(any(v.endswith('pts') for v in matches.values()))
+
+    def test_on_time_share_baseline_is_ignored_on_an_empty_board(self):
+        # total == 0: dividing counts['on time'] / total must not crash.
+        facts = H.rail_facts({}, baseline_on_time_share=0.9,
+                             now=H.datetime(2026, 9, 15, 20, 34, tzinfo=H.LONDON_TZ))
+        self.assertFalse(any('typical' in f['label'].lower() for f in facts))
+
+
+class RailDeparturesLogging(unittest.TestCase):
+    """harvest_rail_departures() logs exactly one snapshot on a full-
+    coverage run and none on a partial one — see _log_rail_snapshot's own
+    note on why a partial read must not become a baseline sample."""
+
+    def setUp(self):
+        H._RAIL_MEMO.clear()
+        self._tmp_dir = tempfile.TemporaryDirectory()
+        self._history_path = Path(self._tmp_dir.name) / 'rail_history.jsonl'
+        self._patch = unittest.mock.patch.object(H, 'RAIL_HISTORY_PATH', self._history_path)
+        self._patch.start()
+
+    def tearDown(self):
+        self._patch.stop()
+        self._tmp_dir.cleanup()
+        H._RAIL_MEMO.clear()
+
+    def _board(self, crs, n=25):
+        return {'crs': crs, 'areServicesAvailable': True,
+                'trainServices': [{'std': '09:00', 'etd': 'On time'}] * n}
+
+    def test_a_full_coverage_run_logs_exactly_one_snapshot(self):
+        def fake(url, headers, timeout=25):
+            crs = url.split('GetDepartureBoard/')[1][:3]
+            return self._board(crs)
+        with unittest.mock.patch.object(H, '_rdm_key', return_value='k'), \
+             unittest.mock.patch.object(H, 'get_json_with_headers', side_effect=fake):
+            facts, err = H.harvest_rail_departures()
+        self.assertIsNone(err)
+        rows = H._rail_snapshot_rows()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]['total'], 25 * len(H.RAIL_TERMINI))
+
+    def test_a_partial_run_is_not_logged(self):
+        crs_list = list(H.RAIL_TERMINI.values())
+        def fake(url, headers, timeout=25):
+            crs = url.split('GetDepartureBoard/')[1][:3]
+            if crs == crs_list[0]:
+                return {'crs': crs, 'areServicesAvailable': False, 'trainServices': []}
+            return self._board(crs)
+        with unittest.mock.patch.object(H, '_rdm_key', return_value='k'), \
+             unittest.mock.patch.object(H, 'get_json_with_headers', side_effect=fake):
+            facts, err = H.harvest_rail_departures()
+        self.assertIsNone(err)   # still a card: RAIL_MIN_STATIONS allows one failure
+        self.assertEqual(H._rail_snapshot_rows(), [])
 
 
 class Spotlight(unittest.TestCase):
