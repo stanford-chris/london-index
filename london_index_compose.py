@@ -82,6 +82,31 @@ def _is_period_aggregate(picks):
         _is_live(picks) or _is_single_day(picks))
 
 
+def _mixed_period_day(picks):
+    """When the picks' periods genuinely disagree — not live, not a shared
+    single day, not a shared month/year aggregate — but exactly one
+    distinct DAY-LEVEL period appears among them, return it: the more
+    specific date, used to anchor the dateline even though a companion
+    pick (a running average, say) covers a different span.
+
+    Chris's call, 18 September 2026, after the "Cycle hire in London" card
+    (cycle_hires: a same-day count next to a "2026 to date" average)
+    shipped with no dateline at all, so the day the count was FOR sat only
+    in a small italic footnote below the rows —
+    https://bsky.app/profile/london-index.bsky.social/post/3mvqfhjc3wh24.
+    His rule: a card's date belongs on the second line under the title,
+    not buried in the footnote.
+
+    Two or more distinct day-level periods (or none at all — two mixed
+    months, say) return None, and the card falls back to the older mixed
+    behaviour: no dateline, the disagreement stated on the source line
+    instead (_period_credit) — picking one day over an equally-specific
+    other day, or promoting a day over a genuinely different kind of
+    period, would misattribute it."""
+    days = {f['period'] for f in picks if f.get('period') and _period_unit(f['period']) == 'date'}
+    return next(iter(days)) if len(days) == 1 else None
+
+
 def _period_credit(picks):
     """The real calendar period the picks cover, worded for the source
     credit line (e.g. "data.police.uk, June 2026; 31 July 2026") — never
@@ -101,10 +126,13 @@ def _period_credit(picks):
     every pick shares one period — a single day or a month/year aggregate
     — that date now rides the card's own dateline instead (see _dateline),
     and showing it twice is redundant in exactly the way a live "now"
-    restated in the opener is. Only a genuinely MIXED set of periods still
-    reaches this line, since that's the one case _dateline can't state as
-    a single date without misattributing it."""
-    if _is_live(picks) or _is_single_day(picks) or _is_period_aggregate(picks):
+    restated in the opener is. And suppressed for _mixed_period_day, added
+    18 September 2026 for the same reason: once one distinct day-level
+    period anchors the dateline, restating it here (or beside the other,
+    less specific period it disagrees with) is the same redundancy. Only a
+    set of periods _mixed_period_day can't resolve to one day still reaches
+    this line."""
+    if _is_live(picks) or _is_single_day(picks) or _is_period_aggregate(picks) or _mixed_period_day(picks):
         return ''
     periods = {f['period'] for f in picks if f.get('period')}
     if not periods:
@@ -118,24 +146,36 @@ def _dateline(picks):
     reading (today's real date and time, since "now" needs an actual
     anchor nothing else on the card states), for a single dated day every
     pick shares (_is_single_day - that exact day, not today's date, since
-    these figures are from a specific past day, not from now), OR for a
+    these figures are from a specific past day, not from now), for a
     month/year aggregate every pick shares (_is_period_aggregate - the real
-    period itself, "June 2026", never today's date).
+    period itself, "June 2026", never today's date), OR for a genuinely
+    mixed set of periods that still resolves to one distinct day-level
+    period among them (_mixed_period_day — the day-level pick's own date,
+    even though a companion pick covers a different span).
 
-    That last case was added 2 September 2026, replacing a design that
-    deliberately gave these cards no dateline at all and put the period in
-    the opener instead ("Reported crimes in June 2026") on the theory that
-    stating today's date next to June's figures would be a false claim.
-    That theory was right but the fix was wrong: nothing here ever proposed
-    showing TODAY's date on an aggregate card, only the real period, and a
-    real card ("Reported crimes in June 2026" as a title, "Most: Camden" /
-    "Fewest: Bromley" beneath it) showed the actual cost — the period
-    crowded the title instead of sitting under it. So the period now rides
-    the dateline, matching the single-day and live cases exactly, and the
-    opener drops it (see SELECT_PROMPT). A card whose picks disagree on
-    their period (_is_period_aggregate is False for those) still gets no
-    dateline, and the mixed period still rides the source credit instead —
-    see _period_credit."""
+    That last case was added 18 September 2026: his rule, stated plainly
+    after seeing the "Cycle hire in London" card carry no dateline at all —
+    a card's date belongs on the second line under the title, in cards
+    like https://bsky.app/profile/london-index.bsky.social/post/3mvqfhjc3wh24,
+    never buried in the footnote alone. The more-specific date wins; the
+    less-specific companion period (an average "to date", say) is left to
+    its own line or a trimmed footnote rather than crowding the dateline
+    with two disagreeing dates.
+
+    The earlier month/year-aggregate case was added 2 September 2026,
+    replacing a design that deliberately gave these cards no dateline at
+    all and put the period in the opener instead ("Reported crimes in June
+    2026") on the theory that stating today's date next to June's figures
+    would be a false claim. That theory was right but the fix was wrong:
+    nothing here ever proposed showing TODAY's date on an aggregate card,
+    only the real period, and a real card ("Reported crimes in June 2026"
+    as a title, "Most: Camden" / "Fewest: Bromley" beneath it) showed the
+    actual cost — the period crowded the title instead of sitting under
+    it. So the period now rides the dateline, matching the single-day and
+    live cases exactly, and the opener drops it (see SELECT_PROMPT). A card
+    whose picks disagree on their period AND resolve to no single day-level
+    period (two mixed months, say) still gets no dateline, and the mixed
+    period still rides the source credit instead — see _period_credit."""
     if _is_live(picks):
         now = datetime.now(LONDON_TZ)
         ampm = 'a.m.' if now.hour < 12 else 'p.m.'
@@ -146,6 +186,9 @@ def _dateline(picks):
     if _is_period_aggregate(picks):
         p = next(iter({f['period'] for f in picks}))
         return _readable_period(p)
+    day = _mixed_period_day(picks)
+    if day:
+        return datetime.strptime(day, '%Y-%m-%d').strftime('%-d %B %Y')
     return ''
 
 

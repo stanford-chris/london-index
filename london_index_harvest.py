@@ -1456,17 +1456,19 @@ def harvest_cycle_hires():
         avg = sum(r[2] for r in year_rows) / len(year_rows)
         page_url = 'https://data.london.gov.uk/dataset/number-bicycle-hires'
         # This pair mixes a day-level period (the count) with a year-level
-        # one (the average), so compose()'s _is_single_day/_is_period_aggregate
-        # both read it as "mixed" and give the card no dateline - and since
-        # 31 August 2026 the reply no longer restates a mixed period_credit
-        # either (post.py's own comment on that change names cycle_hires as
-        # a vein this would leave with no visible date at all). A
-        # context_note surfaces on the card's own footnote instead, the same
-        # route tfl_crowding uses, so the reader isn't left assuming this is
-        # today's count - the Datastore feed runs weeks behind, not days.
-        context_note = (
-            f'Count is for {latest_date.strftime("%-d %B %Y")}; average is '
-            f'{latest_date.year} to date')
+        # one (the average). Until 18 September 2026 that made compose()'s
+        # _is_single_day/_is_period_aggregate both read it as "mixed" and
+        # give the card no dateline at all, with the count's own date
+        # buried in this context_note as the card's only footnote - caught
+        # when he pointed at the live card and said a date belongs on the
+        # second line under the title, not in the footnote:
+        # https://bsky.app/profile/london-index.bsky.social/post/3mvqfhjc3wh24.
+        # compose()'s _mixed_period_day now resolves this exact shape to
+        # the one day-level period among the two (the count's date), which
+        # rides the dateline - so this note only needs to state the
+        # average's own, less specific span; restating the count's date
+        # here too would just repeat the dateline.
+        context_note = f'Average is {latest_date.year} to date'
         facts = [
             fact(f'{int(latest_count):,}', 'Santander Cycles hired',
                  'London Datastore (TfL daily cycle hires)', page_url,

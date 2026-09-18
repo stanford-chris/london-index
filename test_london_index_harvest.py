@@ -1324,6 +1324,64 @@ class DatelineLead(unittest.TestCase):
         self.assertRegex(d, r'\d{1,2}:\d\d [ap]\.m\.$')
 
 
+class MixedPeriodDay(unittest.TestCase):
+    """A card whose picks disagree on period still gets a dateline when
+    exactly one distinct day-level period is among them — cycle_hires'
+    own shape (a same-day count next to a "2026 to date" average), his
+    call 18 September 2026: a card's date belongs on the second line
+    under the title, not buried in the footnote alone. See
+    https://bsky.app/profile/london-index.bsky.social/post/3mvqfhjc3wh24."""
+
+    def compose(self, facts):
+        import london_index_compose as C
+        for i, f in enumerate(facts):
+            f['id'] = f'x:{i}'
+            f['vein'] = 'x'
+        return C.compose({'opener': {'emoji': '', 'text': 'T'}, 'ids': [f['id'] for f in facts]}, facts)
+
+    def test_one_day_level_period_anchors_the_dateline(self):
+        facts = [H.fact('19,426', 'Santander Cycles hired', 's', 'u', period='2026-08-31'),
+                 H.fact('25,843', 'Average daily hires', 's', 'u', period='2026')]
+        c = self.compose(facts)
+        self.assertEqual(c['dateline'], '31 August 2026')
+        # No longer restated on the source line — that would just repeat
+        # the dateline (see _period_credit's own suppression).
+        self.assertEqual(c['period_credit'], '')
+
+    def test_two_distinct_days_still_get_no_dateline(self):
+        # Two picks each pinned to a real but DIFFERENT day: picking one
+        # over the other would misattribute it, so this stays mixed.
+        facts = [H.fact('1', 'a', 's', 'u', period='2026-08-30'),
+                 H.fact('2', 'b', 's', 'u', period='2026-08-31')]
+        c = self.compose(facts)
+        self.assertEqual(c['dateline'], '')
+        self.assertEqual(c['period_credit'], '30 August 2026; 31 August 2026')
+
+    def test_two_mixed_months_are_unaffected(self):
+        # No day-level period at all among the picks — the pre-existing
+        # mixed case (two different months) must still fall through
+        # unchanged to no dateline and a period_credit on the source line.
+        facts = [H.fact('1', 'a', 's', 'u', period='2026-06'),
+                 H.fact('2', 'b', 's', 'u', period='2026-07')]
+        c = self.compose(facts)
+        self.assertEqual(c['dateline'], '')
+        # Alphabetical sort of the readable strings, pre-existing and
+        # unrelated to this change: "July" < "June" (l < n).
+        self.assertEqual(c['period_credit'], 'July 2026; June 2026')
+
+    def test_footnote_carries_no_latest_note_for_a_mixed_day_dateline(self):
+        # _latest_note() needs one single period to call "the latest"; a
+        # card resolved via _mixed_period_day still disagrees on its
+        # OTHER pick's period, so the sentence stays silent, same as any
+        # other mixed card. The average's own context_note still shows.
+        facts = [H.fact('19,426', 'Santander Cycles hired', 's', 'u', period='2026-08-31',
+                        context_note='Average is 2026 to date'),
+                 H.fact('25,843', 'Average daily hires', 's', 'u', period='2026',
+                        context_note='Average is 2026 to date')]
+        c = self.compose(facts)
+        self.assertEqual(c['footnote'], 'Average is 2026 to date')
+
+
 import unittest.mock  # noqa: E402  (used by HousePriceFacts)
 
 if __name__ == '__main__':
