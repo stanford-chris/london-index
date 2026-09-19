@@ -131,6 +131,11 @@ dcms_museums added 30 August):
                   ticket price, screens, cinemas and share of UK screens.
                   ITV's London region, not Greater London; yearly, two
                   years behind. Added 19 September 2026.
+  west_end_shows - SOLT's own "Longest-running shows in West End History"
+                  list (solt.co.uk/data-and-research), the productions
+                  table: the top four by performances, a running show's
+                  count a floor. Updated by SOLT each January on the
+                  evidence of one date. Added 20 September 2026.
 
 Usage:
     python3 london_index_harvest.py            # pool as pretty JSON
@@ -3826,6 +3831,94 @@ def _west_end_newer_report(latest_year, exists=None):
     return url if exists(url) else None
 
 
+# --- The longest-running West End shows: SOLT's own list ------------------
+# solt.co.uk/data-and-research carries "Longest-running shows in West End
+# History": two ordered lists of 20, productions and musicals, each row
+# "<strong>Title</strong> (running since 1952) – Over 29,902 performances"
+# or "(1988 production, now closed) – 10,013 performances", closed by
+# "Information supplied to Society of London Theatre in January 2025".
+# Added 20 September 2026, Chris's call. Only the productions list is read:
+# three of the musicals' top four are the same rows, so a second card would
+# be the first one again. A running show's count is a floor ("Over"), and
+# the value keeps the word; the date the counts were supplied is the card's
+# period. The list moves when SOLT updates it (January, on the evidence of
+# one date), and the spent-fact guard posts each set of values once.
+SOLT_SHOWS_PAGE = 'https://solt.co.uk/data-and-research/'
+SOLT_SHOWS_SOURCE = 'Society of London Theatre'
+SOLT_SHOWS_HEADING = 'longest-running productions in West End history'
+SOLT_SHOWS_NOTE = ('Performances as counted for the Society of London Theatre; '
+                   'a show still running has given more since')
+SOLT_SHOWS_LEAD = 'Performances counted'
+MONTHS = {m: i for i, m in enumerate(
+    ['January', 'February', 'March', 'April', 'May', 'June', 'July',
+     'August', 'September', 'October', 'November', 'December'], 1)}
+
+
+def _strip_tags(s):
+    return re.sub(r'\s+', ' ', re.sub(r'<[^>]+>', '', s).replace('&nbsp;', ' ')
+                  .replace('&amp;', '&').replace('&#8217;', '’')).strip()
+
+
+def parse_solt_shows(html):
+    """({'rows': [(title, status, over, count), ...], 'period': 'YYYY-MM'})
+    from the productions list, or None when the heading, its list, its
+    date or a well-formed row cannot be found. Rows are in the page's own
+    order; a list whose counts do not fall rank by rank is refused, since
+    a ranked card built from it would be wrong."""
+    i = html.lower().find(SOLT_SHOWS_HEADING.lower())
+    if i == -1:
+        return None
+    m = re.search(r'<ol[^>]*>(.*?)</ol>', html[i:], re.S)
+    if not m:
+        return None
+    rows = []
+    for li in re.findall(r'<li[^>]*>(.*?)</li>', m.group(1), re.S):
+        text = _strip_tags(li)
+        r = re.match(r'^(.*?)\s*\(([^)]*)\)\s*[–-]\s*(over\s+)?([\d,]+)\s*performances', text, re.I)
+        if not r:
+            return None
+        title, status, over, count = r.groups()
+        rows.append((title.strip(), status.strip(), bool(over), int(count.replace(',', ''))))
+    if len(rows) < TOP_RANKED_COUNT:
+        return None
+    if any(rows[k][3] < rows[k + 1][3] for k in range(len(rows) - 1)):
+        return None
+    d = re.search(r'supplied to Society of London Theatre in (\w+) (\d{4})', html[i + m.end():i + m.end() + 2000])
+    if not d or d.group(1) not in MONTHS:
+        return None
+    return {'rows': rows, 'period': f'{d.group(2)}-{MONTHS[d.group(1)]:02d}'}
+
+
+def _show_label(title, status):
+    """'The Mousetrap, since 1952' for a running show, 'The Woman in Black,
+    1989 production, closed' for one that has closed; the status is SOLT's
+    own text with "running" and "now" dropped."""
+    if 'closed' in status:
+        return f'{title}, {status.replace("running since", "since").replace("now closed", "closed")}'
+    return f'{title}, {status.replace("running since", "since")}'
+
+
+def solt_show_facts(parsed, url=SOLT_SHOWS_PAGE):
+    """The top TOP_RANKED_COUNT productions, pair 'shows_top'."""
+    facts = []
+    for title, status, over, count in parsed['rows'][:TOP_RANKED_COUNT]:
+        value = f'Over {count:,}' if over else f'{count:,}'
+        facts.append(fact(value, _show_label(title, status), SOLT_SHOWS_SOURCE, url,
+                          period=parsed['period'], pair='shows_top',
+                          context_note=SOLT_SHOWS_NOTE, dateline_lead=SOLT_SHOWS_LEAD))
+    return facts
+
+
+def harvest_west_end_shows():
+    html = curl(SOLT_SHOWS_PAGE, timeout=30)
+    if not html:
+        return [], 'SOLT data-and-research page could not be read'
+    parsed = parse_solt_shows(html)
+    if not parsed:
+        return [], 'SOLT longest-running productions list not found or not well formed (page changed?)'
+    return solt_show_facts(parsed), None
+
+
 def harvest_west_end():
     year = max(WEST_END_REPORTS)
     newer = _west_end_newer_report(year)
@@ -4064,6 +4157,7 @@ HARVESTERS = {
     # The two ticket-sales veins, 19 September 2026: see each one's comment.
     'west_end': harvest_west_end,
     'london_cinema': harvest_london_cinema,
+    'west_end_shows': harvest_west_end_shows,
 }
 
 

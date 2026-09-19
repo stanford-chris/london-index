@@ -143,11 +143,13 @@ SOURCE_LINE = (SOURCE_PREFIX + 'tfl.gov.uk, crowding.data.tfl.gov.uk, '
                'environment.data.gov.uk, data.police.uk, '
                'data.london.gov.uk, londonair.org.uk, www.gov.uk, '
                'landregistry.data.gov.uk, nationalrail.co.uk, geoportal.statistics.gov.uk, '
-               'ticketmaster.co.uk, uktheatre.org, bfi.org.uk')
+               'ticketmaster.co.uk, uktheatre.org, bfi.org.uk, solt.co.uk')
 # uktheatre.org (the Society of London Theatre and UK Theatre's annual
 # report, whose licence asks for the credit) and bfi.org.uk (the Statistical
 # Yearbook) added 19 September 2026 with the west_end and london_cinema
 # veins. Neither contains nor is contained by any other listed domain.
+# solt.co.uk (the longest-running shows list) added 20 September 2026
+# with west_end_shows; likewise no substring of, or containing, another.
 # landregistry.data.gov.uk (UK House Price Index) and nationalrail.co.uk
 # (Rail Delivery Group's Live Departure Board, whose licence requires the
 # credit) added 12 September 2026 with the house_prices and rail_departures
@@ -176,7 +178,8 @@ SOURCE_DOMAINS = [('tfl.gov.uk', 'https://tfl.gov.uk'),
                   ('geoportal.statistics.gov.uk', 'https://geoportal.statistics.gov.uk'),
                   ('ticketmaster.co.uk', 'https://www.ticketmaster.co.uk'),
                   ('uktheatre.org', 'https://uktheatre.org/theatre-in-the-uk-2026/'),
-                  ('bfi.org.uk', 'https://www.bfi.org.uk/industry-data-insights/statistical-yearbook')]
+                  ('bfi.org.uk', 'https://www.bfi.org.uk/industry-data-insights/statistical-yearbook'),
+                  ('solt.co.uk', 'https://solt.co.uk/data-and-research/')]
 
 
 def _alt(card):

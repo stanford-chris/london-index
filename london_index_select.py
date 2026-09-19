@@ -335,6 +335,7 @@ FIXED_OPENERS = {
     # text: each shares one `period`, which _dateline() puts under the title.
     ('west_end', 'west_end_all'): {'emoji': '🎭', 'text': 'West End theatre'},
     ('london_cinema', 'cinema_all'): {'emoji': '🎬', 'text': 'London’s cinemas'},
+    ('west_end_shows', 'shows_top'): {'emoji': '🎭', 'text': 'Longest-running West End shows'},
 }
 
 
