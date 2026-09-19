@@ -1012,16 +1012,17 @@ class LatestNote(unittest.TestCase):
     def test_a_month_a_year_and_a_day_each_name_their_own_unit(self):
         # Each period here is more than one degree removed from today (13
         # September 2026), so the sentence shows; see LatestNoteFreshness
-        # for the boundary itself.
+        # for the boundary itself. A month and a day drop their year, his
+        # call, 20 September 2026: the second line already carries it.
         month = [H.fact('1', 'a', 's', 'u', period='2026-06'), H.fact('2', 'b', 's', 'u', period='2026-06')]
         self.assertEqual(self.compose(month)['footnote'],
-                         'June 2026 is the latest month for which data is available')
+                         'June is the latest month for which data is available')
         year = [H.fact('1', 'a', 's', 'u', period='2024'), H.fact('2', 'b', 's', 'u', period='2024')]
         self.assertEqual(self.compose(year)['footnote'],
                          '2024 is the latest year for which data is available')
         day = [H.fact('1', 'a', 's', 'u', period='2026-09-03'), H.fact('2', 'b', 's', 'u', period='2026-09-03')]
         self.assertEqual(self.compose(day)['footnote'],
-                         '3 September 2026 is the latest date for which data is available')
+                         '3 September is the latest date for which data is available')
 
     def test_a_financial_year_names_itself_a_year_not_a_month(self):
         # museum_facts's own shape ('2024-25'), 7 characters like 'YYYY-MM'
@@ -1038,7 +1039,7 @@ class LatestNote(unittest.TestCase):
         facts = [H.fact('1', 'a', 's', 'u', period='2026-07', context_note='Counted by the Met'),
                  H.fact('2', 'b', 's', 'u', period='2026-07', context_note='Counted by the Met')]
         self.assertEqual(self.compose(facts)['footnote'],
-                         'Counted by the Met · July 2026 is the latest month for which data is available')
+                         'Counted by the Met · July is the latest month for which data is available')
 
     def test_a_live_card_and_a_mixed_card_say_nothing(self):
         live = [H.fact('1', 'a', 's', 'u'), H.fact('2', 'b', 's', 'u')]
@@ -1515,6 +1516,58 @@ class LondonCinema(unittest.TestCase):
             # No cache and a failed fetch is a refusal, never a blank card.
             facts, err = H.harvest_london_cinema(Path(td) / 'none.json', fetch=lambda: (None, 'down'), now=t0)
             self.assertEqual((facts, err), ([], 'down'))
+
+
+class WestEndShows(unittest.TestCase):
+    """SOLT's longest-running productions list as its page carries it: an
+    <ol> after the heading, each row a bold title, a bracketed status and
+    a count, closed by the supplied-in line. The first four rows here are
+    the page's own on 19 September 2026."""
+    ROWS = ['<li><strong>The Mousetrap</strong>&nbsp;(running since 1952) – Over 29,902&nbsp;performances</li>',
+            '<li><strong>Les Misérables</strong>&nbsp;(running since 1985) – Over 15,527 performances</li>',
+            '<li><strong>The Phantom of the Opera</strong>&nbsp;(running since 1986) –Over 15,236 performances</li>',
+            '<li><strong>The Woman in Black</strong>&nbsp;(1989 production, now closed) – 13,232 performances</li>',
+            '<li><strong>Mamma Mia!</strong>&nbsp;(running since 1999) – Over 10,194 performances</li>']
+
+    def page(self, rows=None, supplied='Information supplied to Society of London Theatre in January 2025',
+             heading='The top 20 longest-running productions in West End history'):
+        rows = self.ROWS if rows is None else rows
+        return ('<h6>The top 20 longest-running musicals in West End history</h6><ol><li><strong>X</strong> '
+                '(running since 1900) – Over 99 performances</li></ol>'
+                f'<h6>{heading}</h6><ol>' + ''.join(rows) + f'</ol><p>{supplied}</p>')
+
+    def test_rows_status_over_and_period_are_read(self):
+        p = H.parse_solt_shows(self.page())
+        self.assertEqual(p['period'], '2025-01')
+        self.assertEqual(p['rows'][0], ('The Mousetrap', 'running since 1952', True, 29902))
+        self.assertEqual(p['rows'][3], ('The Woman in Black', '1989 production, now closed', False, 13232))
+        self.assertEqual(len(p['rows']), 5)
+
+    def test_facts_are_the_top_four_with_solts_floor_kept(self):
+        facts = H.solt_show_facts(H.parse_solt_shows(self.page()))
+        self.assertEqual([(f['label'], f['value']) for f in facts],
+                         [('The Mousetrap, since 1952', 'Over 29,902'),
+                          ('Les Misérables, since 1985', 'Over 15,527'),
+                          ('The Phantom of the Opera, since 1986', 'Over 15,236'),
+                          ('The Woman in Black, 1989 production, closed', '13,232')])
+        self.assertEqual({(f['pair'], f['period'], f['dateline_lead']) for f in facts},
+                         {('shows_top', '2025-01', 'Performances counted')})
+        self.assertLessEqual(len(facts[0]['context_note']), 140)
+
+    def test_refusals(self):
+        self.assertIsNone(H.parse_solt_shows(self.page(heading='Something else')))          # no heading
+        self.assertIsNone(H.parse_solt_shows(self.page(rows=self.ROWS[:3])))                 # under four rows
+        self.assertIsNone(H.parse_solt_shows(self.page(rows=self.ROWS[::-1])))               # not ranked
+        self.assertIsNone(H.parse_solt_shows(self.page(supplied='Information supplied in 2025')))  # no date
+        broken = self.ROWS[:3] + ['<li><strong>Cats</strong> 8,949 performances</li>']
+        self.assertIsNone(H.parse_solt_shows(self.page(rows=broken)))                        # malformed row
+        self.assertIsNone(H.parse_solt_shows(self.page(supplied='supplied to Society of London Theatre in Smarch 2025')))
+
+    def test_a_musicals_list_before_the_productions_list_is_skipped(self):
+        # The page's musicals table comes first and must never be read as
+        # the productions one: the heading is what locates the list.
+        p = H.parse_solt_shows(self.page())
+        self.assertNotEqual(p['rows'][0][0], 'X')
 
 
 import unittest.mock  # noqa: E402  (used by HousePriceFacts)

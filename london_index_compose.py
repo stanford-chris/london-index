@@ -304,6 +304,13 @@ def _latest_note(picks, dateline_text):
     than one degree removed from today's own, still-incomplete day/month/
     year -- see _is_stale(). Saying "the latest" is trivial when a period
     is plainly, unavoidably the newest that could exist yet.
+
+    A month or a day drops its YEAR, his call, 20 September 2026: "July is
+    the latest month for which data is available" under a second line
+    already reading "July 2026" (a live house-prices card that day said
+    "July 2026" twice, two lines apart). A bare year has nothing else to
+    say, and a spelled-out dateline_text is restated as the publisher
+    gives it, so neither changes.
     """
     if _is_live(picks):
         return ''
@@ -320,11 +327,24 @@ def _latest_note(picks, dateline_text):
     if not p:
         return ''
     if _is_single_day(picks):
-        return f'{_readable_period(p)} is the latest date for which data is available'
+        return f'{_period_sans_year(p)} is the latest date for which data is available'
     if _is_period_aggregate(picks):
         unit = _period_unit(p) or 'period'
-        return f'{_readable_period(p)} is the latest {unit} for which data is available'
+        return f'{_period_sans_year(p)} is the latest {unit} for which data is available'
     return ''
+
+
+def _period_sans_year(p):
+    """_readable_period() without the year, for _latest_note() alone:
+    "2026-07" -> "July", "2026-07-31" -> "31 July". Anything else (a bare
+    year, a financial year) is returned as _readable_period() gives it,
+    since there the year IS the period."""
+    for fmt, out in (('%Y-%m-%d', '%-d %B'), ('%Y-%m', '%B')):
+        try:
+            return datetime.strptime(p, fmt).strftime(out)
+        except ValueError:
+            continue
+    return _readable_period(p)
 
 
 def compose(sel, pool):
