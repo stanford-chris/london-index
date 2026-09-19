@@ -180,8 +180,8 @@ class HousePriceFacts(unittest.TestCase):
         self.assertEqual(by['hp_gap'], [('Most expensive: B32', '£1,260,000'),
                                         ('Least expensive: B00', '£300,000')])
         self.assertEqual([l for l, _ in by['hp_top']], ['B32', 'B31', 'B30', 'B29'])
-        self.assertEqual(by['hp_change'], [('Biggest rise on a year earlier: B32', '+22.0%'),
-                                           ('Biggest fall on a year earlier: B00', '−10.0%')])
+        self.assertEqual(by['hp_change'], [('Biggest rise: B32', '+22.0%'),
+                                           ('Biggest fall: B00', '−10.0%')])
 
     def test_too_few_boroughs_withholds_the_borough_shapes(self):
         facts = H.house_price_facts(self.LONDON, self.boroughs(H.HPI_MIN_BOROUGHS - 1), '2026-06')

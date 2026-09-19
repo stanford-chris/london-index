@@ -2425,11 +2425,12 @@ def house_price_facts(london, boroughs, ym, url=HPI_PAGE):
         if len(changes) >= HPI_MIN_BOROUGHS:
             changes.sort(key=lambda t: -t[1])
             (rise_name, rise), (fall_name, fall) = changes[0], changes[-1]
-            facts.append(mk(_signed_pct(rise), f'Biggest rise on a year earlier: {rise_name}',
-                            'hp_change'))
+            # "on a year earlier" is the card's title (FIXED_OPENERS,
+            # hp_change), not each row's: it read twice on the live card of
+            # 20 September 2026 and he cut it ("just Biggest fall: xx").
+            facts.append(mk(_signed_pct(rise), f'Biggest rise: {rise_name}', 'hp_change'))
             fall_label = 'Biggest fall' if fall < 0 else 'Smallest rise'
-            facts.append(mk(_signed_pct(fall), f'{fall_label} on a year earlier: {fall_name}',
-                            'hp_change'))
+            facts.append(mk(_signed_pct(fall), f'{fall_label}: {fall_name}', 'hp_change'))
     return facts
 
 

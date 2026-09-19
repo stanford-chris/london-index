@@ -313,7 +313,10 @@ FIXED_OPENERS = {
     ('house_prices', 'hp_types_gap'): {'emoji': '🏠', 'text': 'House prices'},
     ('house_prices', 'hp_gap'): {'emoji': '🏠', 'text': 'House prices, by borough'},
     ('house_prices', 'hp_top'): {'emoji': '🏠', 'text': 'Most expensive boroughs'},
-    ('house_prices', 'hp_change'): {'emoji': '🏠', 'text': 'House prices, by borough'},
+    # The comparison lives here, not on each row ("Biggest rise: Barking and
+    # Dagenham"), his call 20 September 2026 on a live card that said "on a
+    # year earlier" twice in two lines; the borough names say "by borough".
+    ('house_prices', 'hp_change'): {'emoji': '🏠', 'text': 'House prices, change on a year earlier'},
     ('road_works', 'roads_all'): {'emoji': '🚧', 'text': 'Roadworks and disruptions'},
     ('lfb_animals', 'animals_top'): {'emoji': '🚒', 'text': 'Animal rescues by the fire brigade'},
     ('flood', 'flood_gap'): {'emoji': '🌊', 'text': 'Flood warnings and alerts'},
