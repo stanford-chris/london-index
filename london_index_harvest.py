@@ -121,6 +121,16 @@ dcms_museums added 30 August):
                   the year before, ten years earlier, and for the same year
                   overseas visitors, under-16s, website visits, the share
                   who would recommend a visit and admissions income.
+  west_end      - the Society of London Theatre and UK Theatre's annual
+                  report: the West End's attendances, box office, change on
+                  the year, performances, occupancy and the share of tickets
+                  over £250. Transcribed, not parsed (see WEST_END_REPORTS);
+                  posts once a year. Added 19 September 2026.
+  london_cinema - the BFI Statistical Yearbook's exhibition tables, the
+                  London row: admissions, admissions per head, average
+                  ticket price, screens, cinemas and share of UK screens.
+                  ITV's London region, not Greater London; yearly, two
+                  years behind. Added 19 September 2026.
 
 Usage:
     python3 london_index_harvest.py            # pool as pretty JSON
@@ -3742,6 +3752,264 @@ def harvest_events():
     return facts, None
 
 
+# --- The West End's year: SOLT and UK Theatre's annual report ---------------
+# The Society of London Theatre's weekly box office data is members-only
+# (solt.co.uk/box-office-sales-data answers with a login wall), but its
+# annual report with UK Theatre is a public PDF whose second page licenses
+# quotation "for non-commercial purposes provided that the Society of London
+# Theatre and UK Theatre are credited as the source". Added 19 September
+# 2026, Chris's call, as the one London-specific, licensed ticket-sales
+# source found; the BFI weekly box office file is UK-wide, and West End
+# weekly grosses are published nowhere (the Broadway League does it for
+# Broadway; SOLT does not).
+#
+# ⚠️ The figures are TRANSCRIBED, not parsed. The report is prose ("The West
+# End generated record revenue of £1.084 billion in 2025 (up 4.1%) with
+# 17.64 million attendances (up 3.16%)"), the 2026 edition is the only one
+# at this URL shape (the 2025 and 2024 guesses 404), so a regex would be
+# validated against exactly one document and break silently on the next
+# rewording. A dict keyed by the year the figures describe, each value the
+# publisher's own string, is the honest shape: test_london_index_harvest.py
+# pins every value against the sentences pdftotext read out of the PDF, so a
+# typo here fails a test rather than posting. The spent-fact guard posts
+# the card once per value, so a year's figures post once and the vein then
+# waits for the next report (published each March) to be added here.
+# _west_end_newer_report() probes for that report each run and refuses to
+# post the old year once a newer one exists, so the omission is loud.
+WEST_END_SOURCE = 'Society of London Theatre and UK Theatre'
+WEST_END_REPORTS = {
+    '2025': {
+        'page': 'https://uktheatre.org/theatre-in-the-uk-2026/',
+        'report': 'Theatre in the UK 2026',
+        'facts': [
+            ('Attendances', '17.64 million'),
+            ('Attendances, change on 2024', '+3.16%'),
+            ('Box office', '£1.084 billion'),
+            ('Box office, change on 2024', '+4.1%'),
+            ('Performances, change on 2024', '+3.26%'),
+            ('Average occupancy', '84%'),
+            ('Tickets priced over £250', '0.38%'),
+        ],
+    },
+}
+WEST_END_NOTE = ('West End theatres as counted by the Society of London Theatre, '
+                 'in “{report}”, its annual report with UK Theatre')
+
+
+def west_end_facts(year, entry):
+    """One year's West End card from its transcribed entry. Pair
+    'west_end_all', period the year the figures describe (the card's second
+    line), the report named in the footnote."""
+    note = WEST_END_NOTE.format(report=entry['report'])
+    return [fact(v, label, WEST_END_SOURCE, entry['page'], period=year,
+                 pair='west_end_all', context_note=note)
+            for label, v in entry['facts']]
+
+
+def _url_exists(url):
+    """HEAD the URL: True on 200, False on anything else or no answer."""
+    r = subprocess.run(['curl', '-sIL', '--max-time', '20', '-o', '/dev/null',
+                        '-w', '%{http_code}', '-A', 'london-index bot', url],
+                       capture_output=True, text=True)
+    return r.returncode == 0 and r.stdout.strip() == '200'
+
+
+def _west_end_newer_report(latest_year, exists=None):
+    """The page URL of a report newer than the one transcribed, or None. A
+    report published in year N describes year N-1, so the report after the
+    one for `latest_year` is theatre-in-the-uk-{latest_year + 2}. WordPress
+    answers 404 for a slug that does not exist (the 2025 and 2024 guesses
+    did on 19 September 2026), so a 200 is a real page. `exists` is looked
+    up at call time so a test can stand in for the network."""
+    exists = exists or _url_exists
+    url = f'https://uktheatre.org/theatre-in-the-uk-{int(latest_year) + 2}/'
+    return url if exists(url) else None
+
+
+def harvest_west_end():
+    year = max(WEST_END_REPORTS)
+    newer = _west_end_newer_report(year)
+    if newer:
+        return [], (f'a newer report exists at {newer}; transcribe it into '
+                    f'WEST_END_REPORTS before the {year} figures post again')
+    return west_end_facts(year, WEST_END_REPORTS[year]), None
+
+
+# --- London's cinemas: the BFI Statistical Yearbook's exhibition tables ----
+# The BFI's weekly box office file is UK-wide with no regional split, but
+# its Statistical Yearbook's exhibition tables carry one London row: Table 1
+# gives screens, sites, admissions, admissions per head and the average
+# ticket price by ISBA television region. ⚠️ That "London" is ITV's London
+# region, 13.6 million people, wider than Greater London (Table 2's ONS
+# "London", 8.9 million, has screens and sites but no admissions), and the
+# footnote says so. Added 19 September 2026, Chris's call, as the second
+# London-specific ticket-sales source; the BFI's footer is "All rights
+# reserved", not the Open Government Licence most veins here credit, and
+# only bare figures with a credit are published.
+#
+# The yearbook page lists each edition under its own year heading, newest
+# first, as bare core-cms.bfi.org.uk/media/<id>/download links whose
+# filenames are only in their Content-Disposition headers, so the newest
+# edition's exhibition file is found by HEADing that section's links until
+# one is named "-exhibition". The page is 1.1 MB and the section 17 links,
+# so the answer is cached at BFI_CACHE for BFI_RECHECK_DAYS, and a page or
+# file that cannot be read keeps the cache rather than blanking the vein.
+# ⚠️ As of 19 September 2026 the newest edition on the page is Yearbook
+# 2024, whose tables describe 2023; no 2025 edition is listed, so the card's
+# "latest year" sentence names a two-year-old year, which is the truth.
+BFI_YEARBOOK_PAGE = 'https://www.bfi.org.uk/industry-data-insights/statistical-yearbook'
+BFI_SOURCE = 'BFI Statistical Yearbook'
+BFI_CACHE = Path(__file__).parent / 'data' / 'bfi_exhibition.json'
+BFI_RECHECK_DAYS = 7
+BFI_TABLE1_HEADER = 'ISBA TV region'
+BFI_LONDON_ROW = 'London'
+# Column header in Table 1 -> (label, formatter). Population is read too,
+# for the footnote, but is not a fact.
+BFI_COLUMNS = {
+    'Admissions (million)': ('Cinema admissions', lambda v: f'{v:.1f} million'),
+    'Admissions per head of population': ('Admissions per head', lambda v: f'{v:.2f}'),
+    'Average ticket price (£)': ('Average ticket price', lambda v: f'£{v:.2f}'),
+    'Screens': ('Screens', lambda v: f'{int(round(v)):,}'),
+    'Sites': ('Cinemas', lambda v: f'{int(round(v)):,}'),
+    '% of total screens': ('Share of UK screens', lambda v: f'{v:.1f}%'),
+}
+# What a London row must look like to be believed: a changed column order
+# would otherwise put a screen count where a price goes. Wide bounds,
+# checked against the 2023 row (29.8m, 1,031 screens, £9.11).
+BFI_BOUNDS = {'Admissions (million)': (5, 100), 'Screens': (200, 3000),
+              'Sites': (50, 600), 'Average ticket price (£)': (3, 30),
+              'Admissions per head of population': (0.5, 10),
+              '% of total screens': (5, 50), 'Population (million)': (5, 20)}
+
+
+def _bfi_head_filename(url):
+    """The filename in the URL's Content-Disposition header, or ''."""
+    r = subprocess.run(['curl', '-sIL', '--max-time', '20', '-A', 'london-index bot', url],
+                       capture_output=True, text=True)
+    if r.returncode != 0:
+        return ''
+    m = re.search(r'filename=("?)([^";\r\n]+)\1', r.stdout, re.I)
+    return m.group(2) if m else ''
+
+
+def bfi_exhibition_link(html, head=_bfi_head_filename):
+    """(edition_year, download_url) for the newest edition's exhibition
+    tables, or None. The newest edition is the first year heading on the
+    page; its links run to the next heading. `head` returns a URL's
+    Content-Disposition filename, injected so tests never touch the
+    network."""
+    heads = [(m.start(), int(m.group(1)))
+             for m in re.finditer(r'<h2[^>]*>(\d{4})</h2>', html)]
+    if not heads:
+        return None
+    start, year = heads[0]
+    end = heads[1][0] if len(heads) > 1 else len(html)
+    seen = set()
+    for m in re.finditer(r'href="(https://core-cms\.bfi\.org\.uk/media/\d+/download)"', html[start:end]):
+        url = m.group(1)
+        if url in seen:
+            continue
+        seen.add(url)
+        if '-exhibition' in head(url).lower():
+            return year, url
+    return None
+
+
+def bfi_london_row(df):
+    """Table 1's London row as {column header: float}, plus the year the
+    table's own title names: ({...}, '2023'). None when the header row, the
+    London row or the year cannot be found, or a value is outside
+    BFI_BOUNDS."""
+    title_year = None
+    header_row = None
+    for i in range(len(df)):
+        cell = str(df.iloc[i, 0]).strip()
+        m = re.search(r'Table 1:.*?, (\d{4}) \(', cell)
+        if m:
+            title_year = m.group(1)
+        if cell == BFI_TABLE1_HEADER:
+            header_row = i
+            break
+    if header_row is None or title_year is None:
+        return None
+    headers = [str(c).strip() for c in df.iloc[header_row, :]]
+    for i in range(header_row + 1, len(df)):
+        if str(df.iloc[i, 0]).strip() != BFI_LONDON_ROW:
+            continue
+        row = {}
+        for j, hd in enumerate(headers):
+            v = df.iloc[i, j]
+            if hd and isinstance(v, (int, float)) and v == v:
+                row[hd] = float(v)
+        for col, (lo, hi) in BFI_BOUNDS.items():
+            if col not in row or not lo <= row[col] <= hi:
+                return None
+        return row, title_year
+    return None
+
+
+def cinema_facts(row, year, url=BFI_YEARBOOK_PAGE):
+    """The London cinema card from Table 1's London row. Pair 'cinema_all',
+    period the table's year; the footnote names the region the row counts."""
+    note = (f'ITV’s London television region, {row["Population (million)"]:.1f} million '
+            f'people, wider than Greater London')
+    return [fact(fmt(row[col]), label, BFI_SOURCE, url, period=year,
+                 pair='cinema_all', context_note=note)
+            for col, (label, fmt) in BFI_COLUMNS.items()]
+
+
+def _bfi_fetch_row():
+    """Read the newest edition's London row off the live site: (row, year,
+    edition) or (None, reason)."""
+    html = curl(BFI_YEARBOOK_PAGE, timeout=40)
+    if not html:
+        return None, 'BFI yearbook page could not be read'
+    link = bfi_exhibition_link(html)
+    if not link:
+        return None, 'no exhibition tables link found on the BFI yearbook page (layout changed?)'
+    edition, url = link
+    with tempfile.TemporaryDirectory() as td:
+        path = Path(td) / 'exhibition.ods'
+        r = subprocess.run(['curl', '-sS', '-L', '--max-time', '60', '-A', 'london-index bot',
+                            '-o', str(path), url], capture_output=True)
+        if r.returncode != 0 or not path.exists():
+            return None, 'BFI exhibition tables download failed'
+        try:
+            import pandas as pd
+            df = pd.read_excel(path, engine='odf', sheet_name='T1', header=None)
+        except Exception as e:  # noqa: BLE001 - a missing sheet or engine is "cannot read"
+            return None, f'BFI exhibition tables could not be parsed: {e}'
+    parsed = bfi_london_row(df)
+    if not parsed:
+        return None, 'BFI Table 1 has no readable London row (layout changed?)'
+    row, year = parsed
+    return (row, year, edition), None
+
+
+def harvest_london_cinema(cache_path=BFI_CACHE, fetch=_bfi_fetch_row, now=None):
+    now = now or datetime.now(timezone.utc)
+    cache = None
+    try:
+        cache = json.loads(Path(cache_path).read_text())
+    except (OSError, ValueError):
+        cache = None
+    fresh = bool(cache) and (now - datetime.fromisoformat(cache['checked'])) < timedelta(days=BFI_RECHECK_DAYS)
+    if not fresh:
+        got, err = fetch()
+        if got:
+            row, year, edition = got
+            cache = {'row': row, 'year': year, 'edition': edition, 'checked': now.isoformat()}
+            tmp = Path(str(cache_path) + '.tmp')
+            tmp.parent.mkdir(parents=True, exist_ok=True)
+            tmp.write_text(json.dumps(cache))
+            tmp.replace(cache_path)
+        elif not cache:
+            return [], err
+        else:
+            print(f'london_cinema: {err}; using the cached {cache["year"]} row', file=sys.stderr)
+    return cinema_facts(cache['row'], cache['year']), None
+
+
 HARVESTERS = {
     'tfl_bikes': harvest_tfl_bikes,
     # tfl_crowding PAUSED 31 August 2026, Chris's call: no more Tube posts
@@ -3793,6 +4061,9 @@ HARVESTERS = {
     'lfb_incidents': harvest_lfb_incidents,
     'events': harvest_events,
     'museum_spotlight': harvest_museum_spotlight,
+    # The two ticket-sales veins, 19 September 2026: see each one's comment.
+    'west_end': harvest_west_end,
+    'london_cinema': harvest_london_cinema,
 }
 
 

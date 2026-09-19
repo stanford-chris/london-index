@@ -143,7 +143,11 @@ SOURCE_LINE = (SOURCE_PREFIX + 'tfl.gov.uk, crowding.data.tfl.gov.uk, '
                'environment.data.gov.uk, data.police.uk, '
                'data.london.gov.uk, londonair.org.uk, www.gov.uk, '
                'landregistry.data.gov.uk, nationalrail.co.uk, geoportal.statistics.gov.uk, '
-               'ticketmaster.co.uk')
+               'ticketmaster.co.uk, uktheatre.org, bfi.org.uk')
+# uktheatre.org (the Society of London Theatre and UK Theatre's annual
+# report, whose licence asks for the credit) and bfi.org.uk (the Statistical
+# Yearbook) added 19 September 2026 with the west_end and london_cinema
+# veins. Neither contains nor is contained by any other listed domain.
 # landregistry.data.gov.uk (UK House Price Index) and nationalrail.co.uk
 # (Rail Delivery Group's Live Departure Board, whose licence requires the
 # credit) added 12 September 2026 with the house_prices and rail_departures
@@ -170,7 +174,9 @@ SOURCE_DOMAINS = [('tfl.gov.uk', 'https://tfl.gov.uk'),
                   # data.london.gov.uk, already listed). Not a substring of any other
                   # listed domain: 'statistics.gov.uk' and 'gov.uk' are never listed bare.
                   ('geoportal.statistics.gov.uk', 'https://geoportal.statistics.gov.uk'),
-                  ('ticketmaster.co.uk', 'https://www.ticketmaster.co.uk')]
+                  ('ticketmaster.co.uk', 'https://www.ticketmaster.co.uk'),
+                  ('uktheatre.org', 'https://uktheatre.org/theatre-in-the-uk-2026/'),
+                  ('bfi.org.uk', 'https://www.bfi.org.uk/industry-data-insights/statistical-yearbook')]
 
 
 def _alt(card):

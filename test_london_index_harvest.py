@@ -1382,6 +1382,141 @@ class MixedPeriodDay(unittest.TestCase):
         self.assertEqual(c['footnote'], 'Average is 2026 to date')
 
 
+class WestEnd(unittest.TestCase):
+    """The West End figures are transcribed, so the test is the transcription
+    check: every value in WEST_END_REPORTS must appear in the sentences
+    pdftotext read out of the report on 19 September 2026 (pages 5, 16 and
+    17 of Theatre-In-The-UK-2026-Report.pdf). A retyped figure fails here
+    rather than posting."""
+    REPORT_2026 = (
+        'The West End alone drew a record 17.64 million people, generating £1.08 billion in revenue. '
+        'The West End generated record revenue of £1.084 billion in 2025 (up 4.1%) with '
+        '17.64 million attendances (up 3.16%). However, the number of performances '
+        'grew slightly faster, rising by 3.26%. '
+        'As a result, average occupancy eased slightly to 84%. '
+        'Fewer than 4% of tickets were priced above £150, and only 0.38% exceeded £250.')
+
+    def test_every_transcribed_value_is_in_the_report_text(self):
+        for label, value in H.WEST_END_REPORTS['2025']['facts']:
+            self.assertIn(value.lstrip('+'), self.REPORT_2026, f'{label}: {value!r} is not in the report text')
+
+    def test_facts_share_one_pair_period_and_the_report_in_the_footnote(self):
+        facts = H.west_end_facts('2025', H.WEST_END_REPORTS['2025'])
+        self.assertEqual(len(facts), 7)
+        self.assertEqual({f['pair'] for f in facts}, {'west_end_all'})
+        self.assertEqual({f['period'] for f in facts}, {'2025'})
+        self.assertEqual({f['source'] for f in facts}, {H.WEST_END_SOURCE})
+        self.assertIn('“Theatre in the UK 2026”', facts[0]['context_note'])
+        self.assertLessEqual(len(facts[0]['context_note']), 140)
+        self.assertEqual((facts[0]['label'], facts[0]['value']), ('Attendances', '17.64 million'))
+        self.assertEqual((facts[2]['label'], facts[2]['value']), ('Box office', '£1.084 billion'))
+
+    def test_the_year_is_a_bare_year_the_dateline_renders(self):
+        import london_index_compose as C
+        self.assertEqual(C._period_unit('2025'), 'year')
+        self.assertEqual(C._readable_period('2025'), '2025')
+
+    def test_a_newer_report_refuses_to_post_the_old_year(self):
+        # 2025's figures come from the 2026 report; the next one is 2027.
+        self.assertEqual(H._west_end_newer_report('2025', exists=lambda u: u.endswith('-2027/')),
+                         'https://uktheatre.org/theatre-in-the-uk-2027/')
+        self.assertIsNone(H._west_end_newer_report('2025', exists=lambda u: False))
+        with unittest.mock.patch.object(H, '_url_exists', lambda u: True):
+            facts, err = H.harvest_west_end()
+        self.assertEqual(facts, [])
+        self.assertIn('theatre-in-the-uk-2027', err)
+        with unittest.mock.patch.object(H, '_url_exists', lambda u: False):
+            facts, err = H.harvest_west_end()
+        self.assertIsNone(err)
+        self.assertEqual(len(facts), 7)
+
+
+class LondonCinema(unittest.TestCase):
+    """The BFI exhibition Table 1 as pandas reads it (header=None): title in
+    row 0, the header row found by its first cell, London a row like any
+    other. Values are the 2023 row from Yearbook 2024."""
+    HEADERS = ['ISBA TV region', 'Screens per 100,000 people', 'Screens', '% of total screens', 'Sites',
+               'Population (million)', 'Admissions (million)', 'Admissions per screen',
+               'Admissions per head of population', 'Average ticket price (£)']
+    LONDON = ['London', 7.555523, 1031, 21.709834, 199, 13.645647, 29.827847, 28930.99, 2.185887, 9.114995]
+
+    def frame(self, rows):
+        import pandas as pd
+        return pd.DataFrame(rows)
+
+    def table(self, london=None, title='Table 1: Screens and admissions by ISBA TV region, 2023 (ranked by screens per 100,000 people).'):
+        nan = float('nan')
+        return self.frame([[title] + [nan] * 9, self.HEADERS,
+                           ['Northern Ireland', 11.68, 226, 4.76, 32, 1.93, 4.05, 17920.2, 2.09, 7.11],
+                           london or self.LONDON])
+
+    def test_london_row_and_year_are_read_by_content(self):
+        row, year = H.bfi_london_row(self.table())
+        self.assertEqual(year, '2023')
+        self.assertEqual(row['Screens'], 1031)
+        self.assertAlmostEqual(row['Average ticket price (£)'], 9.114995)
+
+    def test_refusals(self):
+        self.assertIsNone(H.bfi_london_row(self.table(title='Table 1: something else')))       # no year
+        self.assertIsNone(H.bfi_london_row(self.table(london=['Londonderry'] + self.LONDON[1:])))  # no London row
+        broken = list(self.LONDON); broken[2], broken[9] = broken[9], broken[2]   # screens and price swapped
+        self.assertIsNone(H.bfi_london_row(self.table(london=broken)))            # outside BFI_BOUNDS
+        frame = self.table(); frame.iloc[1, 0] = 'Region'                          # header row renamed
+        self.assertIsNone(H.bfi_london_row(frame))
+
+    def test_cinema_facts(self):
+        row, year = H.bfi_london_row(self.table())
+        facts = H.cinema_facts(row, year)
+        self.assertEqual([(f['label'], f['value']) for f in facts],
+                         [('Cinema admissions', '29.8 million'), ('Admissions per head', '2.19'),
+                          ('Average ticket price', '£9.11'), ('Screens', '1,031'), ('Cinemas', '199'),
+                          ('Share of UK screens', '21.7%')])
+        self.assertEqual({f['pair'] for f in facts}, {'cinema_all'})
+        self.assertEqual({f['period'] for f in facts}, {'2023'})
+        self.assertEqual(facts[0]['context_note'],
+                         'ITV’s London television region, 13.6 million people, wider than Greater London')
+
+    def test_exhibition_link_is_the_newest_sections_exhibition_file(self):
+        html = ('<h2 class="x">2024</h2>'
+                '<a href="https://core-cms.bfi.org.uk/media/1/download">a</a>'
+                '<a href="https://core-cms.bfi.org.uk/media/2/download">b</a>'
+                '<a href="https://core-cms.bfi.org.uk/media/2/download">b again</a>'
+                '<h2 class="x">2023</h2>'
+                '<a href="https://core-cms.bfi.org.uk/media/3/download">c</a>')
+        names = {'https://core-cms.bfi.org.uk/media/1/download': 'bfi-yearbook-2024-audiences.ods',
+                 'https://core-cms.bfi.org.uk/media/2/download': 'bfi-yearbook-2024-exhibition.ods',
+                 'https://core-cms.bfi.org.uk/media/3/download': 'bfi-yearbook-2023-exhibition.ods'}
+        calls = []
+        def head(url):
+            calls.append(url); return names[url]
+        self.assertEqual(H.bfi_exhibition_link(html, head=head),
+                         (2024, 'https://core-cms.bfi.org.uk/media/2/download'))
+        self.assertEqual(len(calls), 2)          # stops at the first match, never reaches 2023
+        self.assertIsNone(H.bfi_exhibition_link('<p>no headings</p>', head=head))
+        self.assertIsNone(H.bfi_exhibition_link('<h2>2024</h2>', head=head))
+
+    def test_harvest_caches_for_a_week_and_keeps_the_cache_on_a_failed_fetch(self):
+        from datetime import datetime, timezone
+        row, year = H.bfi_london_row(self.table())
+        with tempfile.TemporaryDirectory() as td:
+            cache = Path(td) / 'bfi.json'
+            t0 = datetime(2026, 9, 19, tzinfo=timezone.utc)
+            fetches = []
+            def fetch():
+                fetches.append(1); return (row, year, 2024), None
+            facts, err = H.harvest_london_cinema(cache, fetch=fetch, now=t0)
+            self.assertIsNone(err); self.assertEqual(len(facts), 6); self.assertEqual(len(fetches), 1)
+            # Two days later: the cache answers, nothing is fetched.
+            facts, err = H.harvest_london_cinema(cache, fetch=fetch, now=t0 + timedelta(days=2))
+            self.assertIsNone(err); self.assertEqual(len(fetches), 1)
+            # Eight days later the page is re-read; a failure keeps the cache.
+            facts, err = H.harvest_london_cinema(cache, fetch=lambda: (None, 'down'), now=t0 + timedelta(days=8))
+            self.assertIsNone(err); self.assertEqual(facts[0]['value'], '29.8 million')
+            # No cache and a failed fetch is a refusal, never a blank card.
+            facts, err = H.harvest_london_cinema(Path(td) / 'none.json', fetch=lambda: (None, 'down'), now=t0)
+            self.assertEqual((facts, err), ([], 'down'))
+
+
 import unittest.mock  # noqa: E402  (used by HousePriceFacts)
 
 if __name__ == '__main__':

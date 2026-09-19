@@ -331,6 +331,10 @@ FIXED_OPENERS = {
     ('lfb_incidents', 'lfb_all'): {'emoji': '🚒', 'text': 'The London Fire Brigade’s month'},
     ('events', 'events_all'): {'emoji': '🎭', 'text': 'On sale in London'},
     ('events', 'venues_top'): {'emoji': '🎭', 'text': 'Most performances, by venue'},
+    # The two annual ticket-sales veins, 19 September 2026. No year in the
+    # text: each shares one `period`, which _dateline() puts under the title.
+    ('west_end', 'west_end_all'): {'emoji': '🎭', 'text': 'West End theatre'},
+    ('london_cinema', 'cinema_all'): {'emoji': '🎬', 'text': 'London’s cinemas'},
 }
 
 
