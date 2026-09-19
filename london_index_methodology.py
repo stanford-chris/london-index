@@ -4,15 +4,20 @@ Post the London Index methodology / "about" thread as prose cards, then pin it.
 
 Mirrors Seoul Index's seoul_index_methodology.py (its sibling bot, same
 mechanism), scaled to what London Index actually is: English only (no
-Korean posts here), 4 cards instead of Seoul's 5 EN + 5 KO, and no
-crowd-log/artwork content since this account has neither. Posting it stands
-up a 5-post thread:
+Korean posts here), 5 cards instead of Seoul's 10, and no crowd-log/artwork
+content since this account has neither. Posting it stands up a 7-post
+thread — this list previously said 4 cards and "About the crowding
+figures", which had already drifted from CARDS itself (station and crime
+are two cards, not one); keep it in step with CARDS, not the other way
+round:
 
   1. "About this account" card         (image, no caption)
   2. "About the figures" card
-  3. "About the crowding figures" card
-  4. "About the museum figures" card
-  5. a short reply with clickable source links
+  3. "About the station figures" card
+  4. "About the crime figures" card
+  5. "About the museum figures" card
+  6. a short reply with clickable source links
+  7. a short reply crediting the source code, since 19 September 2026
 
 Each card's full text is its alt text. The link stays clickable because it
 lives in the trailing text reply, not the image (Bluesky renders post text
@@ -192,6 +197,22 @@ def _source_tb():
     return tb
 
 
+# A second, separate trailing reply, matching Seoul Index's identical
+# addition the same day. Kept out of SOURCE_LINE/SOURCE_DOMAINS deliberately:
+# those exist to list DATA publishers, and GitHub is not one.
+CODE_PREFIX = '\U0001f4bb Code: '
+CODE_URL = 'https://github.com/stanford-chris/london-index'
+
+
+def _code_tb():
+    """The source-code credit, as its own trailing reply after the sources
+    one. See the comment above for why it lives here rather than in
+    SOURCE_LINE."""
+    tb = client_utils.TextBuilder()
+    tb.text(CODE_PREFIX).link('GitHub', CODE_URL)
+    return tb
+
+
 def render_all(out_dir):
     out = []
     for i, card in enumerate(CARDS):
@@ -209,6 +230,7 @@ def main():
         print(f'  {card["emoji"]} {card["heading"]} — {size}  {path}')
     clickable = ', '.join(dom for dom, _ in SOURCE_DOMAINS)
     print(f'  [reply] {_source_tb().build_text()!r} (clickable: {clickable})')
+    print(f'  [reply] {_code_tb().build_text()!r} (clickable: GitHub -> {CODE_URL})')
 
     if DRY_RUN:
         print('\n(dry run — rendered cards, not posting)')
@@ -241,9 +263,12 @@ def main():
         prev_ref = models.create_strong_ref(post)
         if root_ref is None:
             root_ref = prev_ref
-    # Trailing clickable source reply.
-    bsky.send_post(text=_source_tb(), reply_to=_reply(prev_ref, root_ref), langs=['en'])
-    print(f'\nPosted methodology thread ({len(CARDS)} cards + source reply).')
+    # Trailing clickable source reply, then the code credit as its own reply
+    # after it -- see the comment above CODE_PREFIX for why it is separate.
+    source_post = bsky.send_post(text=_source_tb(), reply_to=_reply(prev_ref, root_ref), langs=['en'])
+    source_ref = models.create_strong_ref(source_post)
+    bsky.send_post(text=_code_tb(), reply_to=_reply(source_ref, root_ref), langs=['en'])
+    print(f'\nPosted methodology thread ({len(CARDS)} cards + source and code replies).')
 
     if PIN:
         pin_post(bsky, root_ref)
@@ -343,15 +368,31 @@ def is_methodology_thread(recs):
     Index's own is_methodology_thread — the thread being replaced is by
     definition the PREVIOUS shape, so measuring it against the current one
     is the one comparison guaranteed to fail exactly when it is needed (see
-    that function's docstring for the concrete case that bit it)."""
+    that function's docstring for the concrete case that bit it).
+
+    Accepts ONE trailing text reply (the sources line alone, every thread
+    posted before 19 September 2026) or TWO (sources then the code credit,
+    every thread after) — same reasoning and same fix as Seoul Index's own
+    is_methodology_thread, made the same day, for the same reason: without
+    this a --replace run right after that change would fail to recognise
+    the live one-reply thread as one of ours and refuse to delete it."""
     if not 2 <= len(recs) <= MAX_THREAD_RECORDS:
         return False
-    *cards, last = recs
+    texts = []
+    i = len(recs) - 1
+    while i >= 0 and (recs[i]['value'].get('text') or ''):
+        texts.insert(0, recs[i]['value']['text'])
+        i -= 1
+    cards = recs[:i + 1]
+    if not cards or not (1 <= len(texts) <= 2):
+        return False
     if any((r['value'].get('text') or '') for r in cards):
         return False
     if not all((r['value'].get('embed') or {}).get('images') for r in cards):
         return False
-    return (last['value'].get('text') or '').startswith(SOURCE_PREFIX)
+    if len(texts) == 1:
+        return texts[0].startswith(SOURCE_PREFIX)
+    return texts[0].startswith(SOURCE_PREFIX) and texts[1].startswith(CODE_PREFIX)
 
 
 def replace_old_thread(bsky, old_root_uri):
