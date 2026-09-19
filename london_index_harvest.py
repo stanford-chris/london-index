@@ -3890,12 +3890,14 @@ def parse_solt_shows(html):
 
 
 def _show_label(title, status):
-    """'The Mousetrap, since 1952' for a running show, 'The Woman in Black,
-    1989 production, closed' for one that has closed; the status is SOLT's
-    own text with "running" and "now" dropped."""
+    """'“The Mousetrap”, since 1952' for a running show, '“The Woman in
+    Black”, 1989 production, closed' for one that has closed; the status is
+    SOLT's own text with "running" and "now" dropped. The title takes
+    curly quotation marks, house style for a title of a work, his call on
+    20 September 2026 over a bare title."""
     if 'closed' in status:
-        return f'{title}, {status.replace("running since", "since").replace("now closed", "closed")}'
-    return f'{title}, {status.replace("running since", "since")}'
+        return f'“{title}”, {status.replace("running since", "since").replace("now closed", "closed")}'
+    return f'“{title}”, {status.replace("running since", "since")}'
 
 
 def solt_show_facts(parsed, url=SOLT_SHOWS_PAGE):

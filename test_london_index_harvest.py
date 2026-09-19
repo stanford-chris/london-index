@@ -1546,10 +1546,10 @@ class WestEndShows(unittest.TestCase):
     def test_facts_are_the_top_four_with_solts_floor_kept(self):
         facts = H.solt_show_facts(H.parse_solt_shows(self.page()))
         self.assertEqual([(f['label'], f['value']) for f in facts],
-                         [('The Mousetrap, since 1952', 'Over 29,902'),
-                          ('Les Misérables, since 1985', 'Over 15,527'),
-                          ('The Phantom of the Opera, since 1986', 'Over 15,236'),
-                          ('The Woman in Black, 1989 production, closed', '13,232')])
+                         [('“The Mousetrap”, since 1952', 'Over 29,902'),
+                          ('“Les Misérables”, since 1985', 'Over 15,527'),
+                          ('“The Phantom of the Opera”, since 1986', 'Over 15,236'),
+                          ('“The Woman in Black”, 1989 production, closed', '13,232')])
         self.assertEqual({(f['pair'], f['period'], f['dateline_lead']) for f in facts},
                          {('shows_top', '2025-01', 'Performances counted')})
         self.assertLessEqual(len(facts[0]['context_note']), 140)
