@@ -376,18 +376,43 @@ class NothingFresh(Exception):
     """Every fact left in the pool has already been posted at this value."""
 
 
-def posted_lines(history_path=CARD_HISTORY):
+# A vein named here has its spent facts EXPIRE after this many days, so a
+# card can come round again before its source changes. Added 20 September
+# 2026, Chris's call on the west_end_shows cuts ("They can come around more
+# than once a year, but it shouldn't be very often"): SOLT's list moves once
+# a year, so under the plain guard each of its four cards posted once a
+# year and never otherwise. 180 days is each card at most twice a year;
+# with WEST_END_SHOWS_COOLDOWN_DAYS below spacing the four cuts out, the
+# vein leads about once every six weeks at most. A vein not named here
+# keeps the plain rule: spent until the value changes.
+SPENT_EXPIRY_DAYS = {'west_end_shows': 180}
+
+
+def posted_lines(history_path=CARD_HISTORY, now=None):
     """The (label, value) of every line on every card ever posted, read from
     the card log. An unreadable line is skipped, never fatal: the log is
-    append-only prose the poster writes best-effort."""
+    append-only prose the poster writes best-effort. A card from a vein in
+    SPENT_EXPIRY_DAYS whose `at` is older than that many days is left out;
+    one whose `at` cannot be read still counts as spent, since freshness
+    is never invented from a record that does not state it."""
     seen = set()
     if not Path(history_path).exists():
         return seen
+    now = now or datetime.now()
     for line in Path(history_path).read_text(encoding='utf-8').splitlines():
         try:
             rec = json.loads(line)
         except ValueError:
             continue
+        expiry = min((SPENT_EXPIRY_DAYS[v] for v in (rec.get('veins') or [rec.get('primary_vein')])
+                      if v in SPENT_EXPIRY_DAYS), default=None)
+        if expiry is not None:
+            try:
+                age = now - datetime.strptime(rec.get('at') or '', '%Y-%m-%d %H:%M:%S')
+            except ValueError:
+                age = None
+            if age is not None and age >= timedelta(days=expiry):
+                continue
         for l in rec.get('lines') or []:
             if isinstance(l, dict) and 'label' in l and 'value' in l:
                 seen.add((l['label'], l['value']))
@@ -527,6 +552,16 @@ SEVERE_STARVE_DAYS = STARVE_DAYS * 2  # unused for now — see promote_starved()
 DCMS_MUSEUMS_VEINS = {'dcms_museums'}
 DCMS_MUSEUMS_COOLDOWN_DAYS = 4
 
+# west_end_shows offers four cuts of one annual list (see the harvester's
+# section comment), and with only the 20-hour general cooldown the model
+# could lead with all four on four consecutive days. Three weeks between
+# any two of its cards spreads a pass over the four across about three
+# months, and with SPENT_EXPIRY_DAYS above bounds the vein at roughly eight
+# posts a year. Same mechanism and same abandonment rule as the two groups
+# above. Added 20 September 2026.
+WEST_END_SHOWS_VEINS = {'west_end_shows'}
+WEST_END_SHOWS_COOLDOWN_DAYS = 21
+
 
 def apply_cooldown(pool, state, veins, days, label):
     """Drop `veins` from the pool if any of them led a post within the last
@@ -646,6 +681,8 @@ def select(pool, state, history_path=CARD_HISTORY):
                           BUSIEST_STATION_COOLDOWN_DAYS, 'Busiest-station cards')
     pool = apply_cooldown(pool, state, DCMS_MUSEUMS_VEINS,
                           DCMS_MUSEUMS_COOLDOWN_DAYS, 'DCMS museums')
+    pool = apply_cooldown(pool, state, WEST_END_SHOWS_VEINS,
+                          WEST_END_SHOWS_COOLDOWN_DAYS, 'West End shows cards')
     recent = recently_led(state)
     if recent:
         pool = apply_cooldown(pool, state, recent, GENERAL_COOLDOWN_HOURS / 24,

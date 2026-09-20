@@ -290,6 +290,43 @@ class SpentFacts(unittest.TestCase):
         seen = S.posted_lines(self._history([self.CAMDEN]))
         self.assertEqual(seen, {('Most: Camden', '3,179'), ('Fewest: Bromley', '449')})
 
+    def test_a_spent_fact_expires_only_for_a_vein_with_an_expiry(self):
+        # west_end_shows: a card 200 days old is no longer spent, one 100
+        # days old still is; a police card 200 days old is spent for ever.
+        import json, tempfile
+        now = datetime(2026, 9, 20, 12, 0, 0)
+        rows = [{'label': '“Cats”, 1981 production', 'value': '8,949'}]
+        fh = tempfile.NamedTemporaryFile('w', suffix='.jsonl', delete=False)
+        for vein, days in (('west_end_shows', 200), ('west_end_shows', 100), ('police_boroughs', 200)):
+            at = (now - timedelta(days=days)).strftime('%Y-%m-%d %H:%M:%S')
+            fh.write(json.dumps({'at': at, 'primary_vein': vein, 'veins': [vein],
+                                 'lines': [{'label': f'{vein} {days}', 'value': '1'}] + rows}) + '\n')
+        # A west_end_shows card whose `at` cannot be read counts as spent.
+        fh.write(json.dumps({'at': 'yesterday-ish', 'primary_vein': 'west_end_shows',
+                             'veins': ['west_end_shows'],
+                             'lines': [{'label': 'unreadable', 'value': '1'}]}) + '\n')
+        fh.close()
+        self.addCleanup(Path(fh.name).unlink)
+        seen = S.posted_lines(fh.name, now=now)
+        self.assertNotIn(('west_end_shows 200', '1'), seen)
+        self.assertIn(('west_end_shows 100', '1'), seen)
+        self.assertIn(('police_boroughs 200', '1'), seen)
+        self.assertIn(('unreadable', '1'), seen)
+        self.assertIn(('“Cats”, 1981 production', '8,949'), seen)   # the 100-day card holds it
+        self.assertEqual(S.SPENT_EXPIRY_DAYS, {'west_end_shows': 180})
+
+    def test_west_end_shows_has_its_own_three_week_cooldown(self):
+        pool = [{'id': f'west_end_shows:{i}', 'vein': 'west_end_shows', 'label': str(i), 'value': '1'}
+                for i in range(4)] + [{'id': 'tfl_bikes:a', 'vein': 'tfl_bikes', 'label': 'a', 'value': '1'},
+                                      {'id': 'tfl_bikes:b', 'vein': 'tfl_bikes', 'label': 'b', 'value': '1'}]
+        led = lambda days: {'vein_last_at': {'west_end_shows': (
+            datetime.now(timezone.utc) - timedelta(days=days)).isoformat()}}
+        out = S.apply_cooldown(pool, led(10), S.WEST_END_SHOWS_VEINS, S.WEST_END_SHOWS_COOLDOWN_DAYS, 'x')
+        self.assertEqual({f['vein'] for f in out}, {'tfl_bikes'})
+        out = S.apply_cooldown(pool, led(22), S.WEST_END_SHOWS_VEINS, S.WEST_END_SHOWS_COOLDOWN_DAYS, 'x')
+        self.assertEqual(len(out), 6)
+        self.assertEqual(S.WEST_END_SHOWS_COOLDOWN_DAYS, 21)
+
     def test_missing_history_is_empty_not_fatal(self):
         self.assertEqual(S.posted_lines('/nonexistent/card_history.jsonl'), set())
 
