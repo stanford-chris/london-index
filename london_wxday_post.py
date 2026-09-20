@@ -101,7 +101,6 @@ import subprocess
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
 import london_index_card as card
 from london_index_post import HANDLE, KEYCHAIN_SERVICE, MAX_POST_CHARS, keychain_password

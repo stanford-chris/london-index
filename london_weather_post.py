@@ -56,7 +56,7 @@ from zoneinfo import ZoneInfo
 
 import london_index_card as card
 from london_index_harvest import curl
-from london_index_post import HANDLE, KEYCHAIN_SERVICE, MAX_POST_CHARS, keychain_password, write_json_atomic
+from london_index_post import HANDLE, KEYCHAIN_SERVICE, MAX_POST_CHARS, keychain_password
 
 HERE = Path(__file__).parent
 # One JSONL line per posted card, mirroring card_history.jsonl's convention:

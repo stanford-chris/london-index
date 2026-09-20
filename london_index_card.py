@@ -254,32 +254,29 @@ def load_boroughs(path=BOROUGHS_GEOJSON):
     12 September 2026 and committed, so no post depends on a live fetch.
     Licence: Open Government Licence v3.0; "Contains OS data © Crown
     copyright and database right 2024", which the map reply states."""
-    import json
-    d = json.loads(Path(path).read_text(encoding='utf-8'))
-    out = {}
-    for f in d['features']:
-        g = f['geometry']
-        polys = g['coordinates'] if g['type'] == 'MultiPolygon' else [g['coordinates']]
-        rings = []
-        for poly in polys:
-            for ring in poly:            # outer ring and any holes, all drawn
-                rings.append([(float(x), float(y)) for x, y in ring])
-        out[f['properties']['LAD24NM']] = rings
-    return out
+    return {name: [[(float(x), float(y)) for x, y in ring]
+                   for poly in polys for ring in poly]   # outer ring and any holes, all drawn
+            for name, polys in _borough_polys(path)}
 
 
 def load_borough_outers(path=BOROUGHS_GEOJSON):
     """name -> list of OUTER rings only (the first ring of each polygon), for
     counting crimes inside a borough with data.police.uk's poly query; holes
     are drawn by render_borough_map() but must not be counted twice."""
+    return {name: [[(float(x), float(y)) for x, y in poly[0]] for poly in polys]
+            for name, polys in _borough_polys(path)}
+
+
+def _borough_polys(path):
+    """(borough name, list of polygons) per feature of the ONS GeoJSON, a
+    Polygon read as a one-polygon MultiPolygon so both loaders above walk
+    one shape."""
     import json
     d = json.loads(Path(path).read_text(encoding='utf-8'))
-    out = {}
     for f in d['features']:
         g = f['geometry']
         polys = g['coordinates'] if g['type'] == 'MultiPolygon' else [g['coordinates']]
-        out[f['properties']['LAD24NM']] = [[(float(x), float(y)) for x, y in poly[0]] for poly in polys]
-    return out
+        yield f['properties']['LAD24NM'], polys
 
 
 def render_borough_map(highlight, town_hall, out_path, title='', caption='', boroughs=None, ranks=None):

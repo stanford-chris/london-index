@@ -110,6 +110,27 @@ def log_card(c, post_uri, handle, fallback):
         print(f'(card log failed: {e})')
 
 
+def reply_with_map(bsky, models, root_ref, map_path, msize, map_alt, credit_tb, what):
+    """Post a rendered map as a reply to the card and return its strong ref,
+    or None when it failed. Never raises: the card is already live by the time
+    a map is sent, so a failed map is logged and the thread continues without
+    it. `credit_tb` is the reply's text, which carries the boundary data's
+    licence terms (OGL v3, OS Crown copyright), which is what lets the
+    outlines be posted at all."""
+    try:
+        pm = bsky.send_image(text=credit_tb, image=map_path.read_bytes(), image_alt=map_alt,
+                             langs=['en'],
+                             reply_to=models.AppBskyFeedPost.ReplyRef(parent=root_ref, root=root_ref),
+                             image_aspect_ratio=models.AppBskyEmbedDefs.AspectRatio(
+                                 width=msize[0], height=msize[1]))
+    except Exception as e:  # noqa: BLE001 - the card is live; never let the map take the thread down
+        print(f'{what} failed ({type(e).__name__}: {e}); thread continues without it.',
+              file=sys.stderr)
+        return None
+    print(f'Posted the {what.lower()} as a reply.')
+    return models.create_strong_ref(pm)
+
+
 def card_alt(c):
     """The card's alt text: opener, dateline, every line as "label: value",
     footnote in brackets, all curled to match the image. Lifted out of
@@ -272,16 +293,12 @@ def main():
                                               'https://geoportal.statistics.gov.uk/')
                 mtb.text(', Open Government Licence v3.0. Contains OS data © Crown '
                          'copyright and database right 2024.')
-                pm = bsky.send_image(text=mtb, image=map_path.read_bytes(), image_alt=map_alt,
-                                     langs=['en'],
-                                     reply_to=models.AppBskyFeedPost.ReplyRef(parent=root_ref, root=root_ref),
-                                     image_aspect_ratio=models.AppBskyEmbedDefs.AspectRatio(
-                                         width=msize[0], height=msize[1]))
-                parent_ref = models.create_strong_ref(pm)
-                print('Posted the borough map as a reply.')
             except Exception as e:  # noqa: BLE001 - the card is live; never let the map take the thread down
                 print(f'Borough map failed ({type(e).__name__}: {e}); thread continues without it.',
                       file=sys.stderr)
+            else:
+                parent_ref = reply_with_map(bsky, models, root_ref, map_path, msize,
+                                            map_alt, mtb, 'Borough map') or parent_ref
 
         # A stored zone boundary (the Congestion Charge zone), same shape of
         # reply as the borough map: Chris's call, 12 September 2026. The
@@ -300,16 +317,12 @@ def main():
                 mtb.text(', Open Government Licence. Borough outlines: ').link(
                     'Office for National Statistics', 'https://geoportal.statistics.gov.uk/')
                 mtb.text(', OGL v3.0, contains OS data © Crown copyright and database right 2024.')
-                pm = bsky.send_image(text=mtb, image=map_path.read_bytes(), image_alt=map_alt,
-                                     langs=['en'],
-                                     reply_to=models.AppBskyFeedPost.ReplyRef(parent=root_ref, root=root_ref),
-                                     image_aspect_ratio=models.AppBskyEmbedDefs.AspectRatio(
-                                         width=msize[0], height=msize[1]))
-                parent_ref = models.create_strong_ref(pm)
-                print('Posted the zone map as a reply.')
             except Exception as e:  # noqa: BLE001 - the card is live; never let the map take the thread down
                 print(f'Zone map failed ({type(e).__name__}: {e}); thread continues without it.',
                       file=sys.stderr)
+            else:
+                parent_ref = reply_with_map(bsky, models, root_ref, map_path, msize,
+                                            map_alt, mtb, 'Zone map') or parent_ref
 
         # Just the link(s) - no "Source: " label, no period credit. Chris's
         # call, 31 August 2026: the explanation of what a card's numbers

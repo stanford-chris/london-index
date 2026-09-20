@@ -1721,11 +1721,7 @@ def dcms_table(sheet):
     except Exception:  # noqa: BLE001 - a missing sheet or engine is "cannot read"
         _DCMS_MEMO[sheet] = None
         return None
-    header_row = None
-    for i in range(len(df)):
-        if str(df.iloc[i, 0]).strip() == 'Name of museum or gallery':
-            header_row = i
-            break
+    header_row = _dcms_header_row(df)
     if header_row is None:
         _DCMS_MEMO[sheet] = None
         return None
@@ -1829,15 +1825,7 @@ def harvest_dcms_museums():
         except Exception as e:
             return [], f'DCMS museums sheet parse failed: {e}'
 
-    # Found by content, not a hardcoded row number: DCMS has already broken
-    # this table's own row numbering once (a 2010/11 and a 2014/15 column
-    # both carry a "[b] break in series" marker), so trust the label over a
-    # position.
-    header_row = None
-    for i in range(len(df)):
-        if str(df.iloc[i, 0]).strip() == 'Name of museum or gallery':
-            header_row = i
-            break
+    header_row = _dcms_header_row(df)
     if header_row is None:
         return [], 'DCMS museums header row not found (sheet layout changed?)'
 
@@ -2442,11 +2430,15 @@ def harvest_house_prices():
         return [], 'no published UK HPI month for London in the last 5 tried'
     london = _hpi_month('london', ym)
     boroughs, failed = _hpi_boroughs(ym)
-    facts = house_price_facts(london, boroughs, ym)
+    return _hpi_noted(house_price_facts(london, boroughs, ym), failed, ym), None
+
+
+def _hpi_noted(facts, failed, ym):
+    """`facts` with the boroughs that did not answer named on the first one."""
     if failed:
         facts[0]['note'] = (f'{len(failed)} of {len(HPI_BOROUGHS)} boroughs did not answer '
                             f'for {ym}: {failed}')
-    return facts, None
+    return facts
 
 
 # --- House price spotlight: one borough, its own price and rank ------------
@@ -2500,11 +2492,7 @@ def harvest_house_price_spotlight():
     if not boroughs:
         return [], f'no borough answered for {ym}'
     name = spotlight_pick(list(boroughs), hp_spotlight_last_featured())
-    facts = house_price_spotlight_facts(name, boroughs, ym)
-    if failed:
-        facts[0]['note'] = (f'{len(failed)} of {len(HPI_BOROUGHS)} boroughs did not answer '
-                            f'for {ym}: {failed}')
-    return facts, None
+    return _hpi_noted(house_price_spotlight_facts(name, boroughs, ym), failed, ym), None
 
 
 # --- Roadworks and disruptions on TfL roads (live) -------------------------
@@ -3464,6 +3452,28 @@ def lifts_facts(rows, ym, url=LIFTS_PAGE, prev_rows=None):
     return facts
 
 
+def _dcms_header_row(df):
+    """The row index of the DCMS museums table's header, or None. Found by
+    content, not a hardcoded row number: DCMS has already broken this table's
+    own row numbering once (a 2010/11 and a 2014/15 column both carry a
+    "[b] break in series" marker), so trust the label over a position."""
+    for i in range(len(df)):
+        if str(df.iloc[i, 0]).strip() == 'Name of museum or gallery':
+            return i
+    return None
+
+
+def _call_time(when):
+    """An LFB sheet's call timestamp as a datetime, or None: the sheets carry
+    a datetime in one export and an ISO string in another."""
+    if isinstance(when, str):
+        try:
+            when = datetime.fromisoformat(when[:19])
+        except ValueError:
+            return None
+    return when if isinstance(when, datetime) else None
+
+
 def harvest_lift_releases():
     rows = _download_xlsx_rows(LIFTS_URL)
     if not rows:
@@ -3474,13 +3484,8 @@ def harvest_lift_releases():
     by_month = {}
     for row in rows[1:]:
         rec = dict(zip(header, row))
-        when = rec.get('DateTimeOfCall')
-        if isinstance(when, str):
-            try:
-                when = datetime.fromisoformat(when[:19])
-            except ValueError:
-                continue
-        if not isinstance(when, datetime):
+        when = _call_time(rec.get('DateTimeOfCall'))
+        if when is None:
             continue
         by_month.setdefault(when.strftime('%Y-%m'), []).append(rec)
     this_month = datetime.now(timezone.utc).strftime('%Y-%m')
@@ -3522,13 +3527,8 @@ def lfb_aggregate(rows):
     months = {}
     att = {}
     for r in rows[1:]:
-        when = r[di]
-        if isinstance(when, str):
-            try:
-                when = datetime.fromisoformat(when[:19])
-            except ValueError:
-                continue
-        if not isinstance(when, datetime):
+        when = _call_time(r[di])
+        if when is None:
             continue
         ym = when.strftime('%Y-%m')
         m = months.setdefault(ym, {'total': 0, 'fires': 0, 'primary_fires': 0, 'false_alarms': 0,
