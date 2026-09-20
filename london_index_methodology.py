@@ -123,12 +123,23 @@ CRIME = ("Borough crime figures are the Metropolitan Police's own monthly counts
          "means within a mile of Trafalgar Square, from data.police.uk's "
          "street-level reports. A borough card's map fills the borough counted.")
 
+# Added 20 September 2026 with SPENT_EXPIRY_DAYS in london_index_select.py:
+# the three annual ticket-sales veins may return after 180 days, his call
+# ("They can come around more than once a year, but it shouldn't be very
+# often"), and nothing on the pinned thread said how repeats are handled.
+REPEATS = ("No card is posted twice while its figures stand. Monthly figures "
+           "return when the publisher's next month arrives. Three yearly cards, "
+           "the West End's season, London's cinemas and the longest-running "
+           "shows, may return after six months, so a year's figures are shown "
+           "at most twice.")
+
 CARDS = [
     {'heading': 'About this account', 'emoji': '\U0001f1ec\U0001f1e7', 'body': [INTRO]},
     {'heading': 'About the figures', 'emoji': '\U0001f9ee', 'body': [COUNTS]},
     {'heading': 'About the station figures', 'emoji': '\U0001f687', 'body': [STATIONS]},
     {'heading': 'About the crime figures', 'emoji': '\U0001f693', 'body': [CRIME]},
     {'heading': 'About the museum figures', 'emoji': '\U0001f5bc️', 'body': [MUSEUMS]},
+    {'heading': 'About repeats', 'emoji': '\U0001f501', 'body': [REPEATS]},
 ]
 
 # Every publisher a live vein in london_index_harvest.HARVESTERS actually
