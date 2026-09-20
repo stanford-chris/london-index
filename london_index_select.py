@@ -339,6 +339,13 @@ FIXED_OPENERS = {
     ('west_end', 'west_end_all'): {'emoji': '🎭', 'text': 'West End theatre'},
     ('london_cinema', 'cinema_all'): {'emoji': '🎬', 'text': 'London’s cinemas'},
     ('west_end_shows', 'shows_top'): {'emoji': '🎭', 'text': 'Longest-running West End shows'},
+    # The three further cuts of SOLT's list, the same evening. The closed
+    # card's title carries "closed" so its rows need not; the year cuts say
+    # what they rank by, since their value column is a year. Under about
+    # 44 characters, or the title wraps at this card's width.
+    ('west_end_shows', 'shows_closed'): {'emoji': '🎭', 'text': 'Longest-running West End shows, now closed'},
+    ('west_end_shows', 'shows_newest'): {'emoji': '🎭', 'text': 'Newest of the West End’s longest runs'},
+    ('west_end_shows', 'shows_oldest'): {'emoji': '🎭', 'text': 'Oldest of the West End’s longest runs'},
 }
 
 

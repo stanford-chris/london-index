@@ -133,9 +133,11 @@ dcms_museums added 30 August):
                   years behind. Added 19 September 2026.
   west_end_shows - SOLT's own "Longest-running shows in West End History"
                   list (solt.co.uk/data-and-research), the productions
-                  table: the top four by performances, a running show's
-                  count a floor. Updated by SOLT each January on the
-                  evidence of one date. Added 20 September 2026.
+                  table, cut four ways: the top four by performances, the
+                  longest runs now closed, the newest openings still
+                  running and the oldest openings, a running show's count
+                  a floor. Updated by SOLT each January on the evidence of
+                  one date. Added 20 September 2026.
 
 Usage:
     python3 london_index_harvest.py            # pool as pretty JSON
@@ -3844,12 +3846,32 @@ def _west_end_newer_report(latest_year, exists=None):
 # the value keeps the word; the date the counts were supplied is the card's
 # period. The list moves when SOLT updates it (January, on the evidence of
 # one date), and the spent-fact guard posts each set of values once.
+#
+# Four cuts of the one list since the same evening, his call ("Do no. 1
+# and 3") on seeing the first card: the top four (shows_top), the longest
+# runs now closed (shows_closed), the newest openings still running
+# (shows_newest) and the oldest openings (shows_oldest). One harvest,
+# four pairs, each spent once a year, so the vein says four different
+# things a year instead of one. ⚠️ Every cut has its OWN label form, and
+# that is load-bearing twice over: a fact's id is vein plus label, so two
+# pairs sharing a label would collide in the pool; and the spent guard
+# keys on (label, value) and withholds a whole pair when one member is
+# spent, so The Woman in Black posting on the top card would otherwise
+# have spent the closed card the same day. The year cuts put the opening
+# year in the value column, since that is what they rank by, and carry the
+# count in the label; the top and closed cuts rank by count.
 SOLT_SHOWS_PAGE = 'https://solt.co.uk/data-and-research/'
 SOLT_SHOWS_SOURCE = 'Society of London Theatre'
 SOLT_SHOWS_HEADING = 'longest-running productions in West End history'
 SOLT_SHOWS_NOTE = ('Performances as counted for the Society of London Theatre; '
                    'a show still running has given more since')
+# The closed cut's rows are all final, so its footnote makes no floor claim.
+SOLT_CLOSED_NOTE = 'Performances as counted for the Society of London Theatre'
 SOLT_SHOWS_LEAD = 'Performances counted'
+# The newest cut is running shows only, said on the second line where a
+# scope qualifier goes ("Within a mile of each town hall"), so its title
+# fits one line and its rows carry no status.
+SOLT_NEWEST_LEAD = 'Still running, performances counted'
 MONTHS = {m: i for i, m in enumerate(
     ['January', 'February', 'March', 'April', 'May', 'June', 'July',
      'August', 'September', 'October', 'November', 'December'], 1)}
@@ -3901,14 +3923,67 @@ def _show_label(title, status):
     return f'“{title}”, {status.replace("running since", "since")}'
 
 
+def _show_year(status):
+    """The opening year in SOLT's status text ('running since 1952', '1989
+    production, now closed', '1997 revival, now closed'), or None."""
+    m = re.search(r'\b(1[89]\d\d|20\d\d)\b', status)
+    return int(m.group(1)) if m else None
+
+
+def _closed_label(title, status):
+    """'“The Woman in Black”, 1989 production' on the closed card, whose
+    title already says closed (the rows carry no word the title carries);
+    'running since 2009, now closed' (Thriller Live) reads 'since 2009'."""
+    status = re.sub(r',?\s*now closed', '', status).replace('running since', 'since').strip()
+    return f'“{title}”, {status}'
+
+
+def _count_words(over, count):
+    """'over 29,902' or '4,344': the dateline says these are performances,
+    and the word on every row wrapped the year cuts to two lines a row."""
+    return f'{"over " if over else ""}{count:,}'
+
+
 def solt_show_facts(parsed, url=SOLT_SHOWS_PAGE):
-    """The top TOP_RANKED_COUNT productions, pair 'shows_top'."""
+    """Four cuts of the productions list, one pair each (see the section
+    comment). A year cut with fewer than TOP_RANKED_COUNT rows to rank,
+    or a row with no readable year, is left out rather than padded."""
+    rows = parsed['rows']
+    mk = lambda value, label, pair, note, lead=SOLT_SHOWS_LEAD: fact(
+        value, label, SOLT_SHOWS_SOURCE, url, period=parsed['period'], pair=pair,
+        context_note=note, dateline_lead=lead)
     facts = []
-    for title, status, over, count in parsed['rows'][:TOP_RANKED_COUNT]:
+    # 1. The top four by performances, as SOLT ranks them.
+    for title, status, over, count in rows[:TOP_RANKED_COUNT]:
         value = f'Over {count:,}' if over else f'{count:,}'
-        facts.append(fact(value, _show_label(title, status), SOLT_SHOWS_SOURCE, url,
-                          period=parsed['period'], pair='shows_top',
-                          context_note=SOLT_SHOWS_NOTE, dateline_lead=SOLT_SHOWS_LEAD))
+        facts.append(mk(value, _show_label(title, status), 'shows_top', SOLT_SHOWS_NOTE))
+    # 2. The longest runs that have closed, in SOLT's order (by count).
+    closed = [r for r in rows if 'closed' in r[1]][:TOP_RANKED_COUNT]
+    if len(closed) == TOP_RANKED_COUNT:
+        for title, status, over, count in closed:
+            facts.append(mk(f'{count:,}', _closed_label(title, status), 'shows_closed', SOLT_CLOSED_NOTE))
+    # 3. The newest openings still running, and 4. the oldest openings of
+    # all: ranked by year, the count in the label, ties in SOLT's order.
+    dated = [(i, r, _show_year(r[1])) for i, r in enumerate(rows)]
+    dated = [(i, r, y) for i, r, y in dated if y is not None]
+    running = [(i, r, y) for i, r, y in dated if 'closed' not in r[1]]
+    newest = sorted(running, key=lambda t: (-t[2], t[0]))[:TOP_RANKED_COUNT]
+    if len(newest) == TOP_RANKED_COUNT:
+        for _i, (title, status, over, count), year in newest:
+            facts.append(mk(str(year), f'“{title}”, {_count_words(over, count)}',
+                            'shows_newest', SOLT_SHOWS_NOTE, SOLT_NEWEST_LEAD))
+    # The oldest card mixes running and closed shows and says which only
+    # through SOLT's own floor ("over 29,902"), which the footnote explains:
+    # a status word on every row wrapped the Minstrel Show's onto a second
+    # line with its count orphaned. That leaves its labels in the newest
+    # cut's form, so a show on both (four or fewer running shows, all among
+    # the four oldest openings) would collide in the pool; the oldest cut
+    # is refused in that case rather than posted with a row missing.
+    oldest = sorted(dated, key=lambda t: (t[2], t[0]))[:TOP_RANKED_COUNT]
+    if len(oldest) == TOP_RANKED_COUNT and not {t[1][0] for t in oldest} & {t[1][0] for t in newest[:TOP_RANKED_COUNT]}:
+        for _i, (title, status, over, count), year in oldest:
+            facts.append(mk(str(year), f'“{title}”, {_count_words(over, count)}',
+                            'shows_oldest', SOLT_SHOWS_NOTE))
     return facts
 
 

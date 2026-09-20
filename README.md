@@ -70,7 +70,7 @@ The title names what is measured ("Reported crime", "House prices, by borough").
 | `museum_spotlight` | the DCMS release: one of the 13 London museums per card, its visitors, change, ten years earlier, overseas and under-16 visitors, website visits, recommendation rate and admissions income | yearly |
 | `west_end` | Society of London Theatre and UK Theatre, "Theatre in the UK" annual report: West End attendances, box office, change on the year, performances, occupancy, tickets over £250 | yearly, each March |
 | `london_cinema` | BFI Statistical Yearbook, exhibition tables: London's cinema admissions, admissions per head, average ticket price, screens, cinemas, share of UK screens | yearly, about two years behind |
-| `west_end_shows` | Society of London Theatre: the longest-running productions in West End history, the top four by performances | yearly, updated each January |
+| `west_end_shows` | Society of London Theatre: the longest-running productions in West End history, cut four ways (top four by performances, longest runs now closed, newest openings still running, oldest openings) | yearly, updated each January |
 
 A daily weather card (`london_weather_post.py`) uses the Met Office Weather DataHub and posts separately. A second, `london_wxday_post.py`, posts yesterday's *observed* readings: High/Low from the same DataHub's Land Observations API (a separate subscription and key from the forecast card's own, which carries no rain, sunshine or snow field at all), plus a Rain line — shown only when it actually rained — from a second, different UK government source, the Environment Agency's real-time flood-monitoring API (real tipping-bucket gauges, no key needed). No Conditions, Humidity, Wind, Sunshine or Snow row, his call.
 

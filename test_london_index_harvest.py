@@ -1544,7 +1544,7 @@ class WestEndShows(unittest.TestCase):
         self.assertEqual(len(p['rows']), 5)
 
     def test_facts_are_the_top_four_with_solts_floor_kept(self):
-        facts = H.solt_show_facts(H.parse_solt_shows(self.page()))
+        facts = [f for f in H.solt_show_facts(H.parse_solt_shows(self.page())) if f['pair'] == 'shows_top']
         self.assertEqual([(f['label'], f['value']) for f in facts],
                          [('“The Mousetrap”, since 1952', 'Over 29,902'),
                           ('“Les Misérables”, since 1985', 'Over 15,527'),
@@ -1562,6 +1562,80 @@ class WestEndShows(unittest.TestCase):
         broken = self.ROWS[:3] + ['<li><strong>Cats</strong> 8,949 performances</li>']
         self.assertIsNone(H.parse_solt_shows(self.page(rows=broken)))                        # malformed row
         self.assertIsNone(H.parse_solt_shows(self.page(supplied='supplied to Society of London Theatre in Smarch 2025')))
+
+    # SOLT's list as it stood on 20 September 2026, rows 5-20, for the cuts
+    # that reach past the top four.
+    MORE = ['<li><strong>Blood Brothers</strong> (1988 production, now closed) – 10,013 performances</li>',
+            '<li><strong>Disney’s The Lion King</strong> (running since 1999) – Over 9,934 performances</li>',
+            '<li><strong>Cats</strong> (1981 production, now closed) – 8,949 performances</li>',
+            '<li><strong>Starlight Express</strong> (1984 production, now closed) – 7,406 performances</li>',
+            '<li><strong>Wicked</strong> (running since 2006) – Over 7,054 performances</li>',
+            '<li><strong>No Sex Please, We’re British</strong> (1971 production, now closed) – 6,761 performances</li>',
+            '<li><strong>Chicago</strong> (1997 revival, now closed) – 6,187 performances</li>',
+            '<li><strong>Matilda The Musical</strong> (running since 2011) – Over 4,874 performances</li>',
+            '<li><strong>Thriller Live</strong> (running since 2009, now closed) – over 4,613 performances</li>',
+            '<li><strong>The Black and White Minstrel Show</strong> (1962 production, now closed) – 4,344 performances</li>']
+
+    def facts_by_pair(self, rows=None):
+        facts = H.solt_show_facts(H.parse_solt_shows(self.page(rows=rows)))
+        out = {}
+        for f in facts:
+            out.setdefault(f['pair'], []).append((f['label'], f['value']))
+        return out
+
+    def test_the_closed_cut_ranks_closed_runs_and_drops_the_word_the_title_carries(self):
+        by = self.facts_by_pair(self.ROWS + self.MORE)
+        self.assertEqual(by['shows_closed'],
+                         [('“The Woman in Black”, 1989 production', '13,232'),
+                          ('“Blood Brothers”, 1988 production', '10,013'),
+                          ('“Cats”, 1981 production', '8,949'),
+                          ('“Starlight Express”, 1984 production', '7,406')])
+        self.assertEqual(H._closed_label('Thriller Live', 'running since 2009, now closed'),
+                         '“Thriller Live”, since 2009')
+        self.assertEqual(H._closed_label('Chicago', '1997 revival, now closed'), '“Chicago”, 1997 revival')
+
+    def test_the_year_cuts_rank_by_opening_year_with_the_count_in_the_label(self):
+        by = self.facts_by_pair(self.ROWS + self.MORE)
+        # Newest still running: year descending, a tie in SOLT's own order.
+        self.assertEqual(by['shows_newest'],
+                         [('“Matilda The Musical”, over 4,874', '2011'),
+                          ('“Wicked”, over 7,054', '2006'),
+                          ('“Mamma Mia!”, over 10,194', '1999'),
+                          ('“Disney’s The Lion King”, over 9,934', '1999')])
+        self.assertEqual({f['dateline_lead'] for f in H.solt_show_facts(
+            H.parse_solt_shows(self.page(rows=self.ROWS + self.MORE))) if f['pair'] == 'shows_newest'},
+            {'Still running, performances counted'})
+        # Oldest of all, running or closed: SOLT's floor is what marks a
+        # running show, the footnote says so, and a status word wrapped rows.
+        self.assertEqual(by['shows_oldest'],
+                         [('“The Mousetrap”, over 29,902', '1952'),
+                          ('“The Black and White Minstrel Show”, 4,344', '1962'),
+                          ('“No Sex Please, We’re British”, 6,761', '1971'),
+                          ('“Cats”, 8,949', '1981')])
+
+    def test_every_row_is_distinct_across_the_four_cuts(self):
+        # A fact's id is vein + label and the spent guard keys on (label,
+        # value) pair-wide, so a show on two cuts must read differently on
+        # each: The Woman in Black is on the top and closed cards, Cats on
+        # the closed and oldest, The Mousetrap on the top and oldest.
+        by = self.facts_by_pair(self.ROWS + self.MORE)
+        self.assertEqual(set(by), {'shows_top', 'shows_closed', 'shows_newest', 'shows_oldest'})
+        rows = [r for pair in by.values() for r in pair]
+        self.assertEqual(len(rows), 16)
+        self.assertEqual(len({label for label, _ in rows}), 16)
+        self.assertEqual(len(set(rows)), 16)
+        for pair in by.values():
+            self.assertEqual(len(pair), 4)
+
+    def test_a_short_cut_is_left_out_rather_than_padded(self):
+        # Five rows: the top four exist, but only one run has closed, so the
+        # closed cut is absent; and the four running shows are also four of
+        # the five oldest openings, so the oldest cut is refused rather than
+        # built with labels that would collide with the newest cut's.
+        by = self.facts_by_pair()
+        self.assertEqual(set(by), {'shows_top', 'shows_newest'})
+        self.assertEqual([v for _, v in by['shows_newest']], ['1999', '1986', '1985', '1952'])
+        self.assertIsNone(H._show_year('now closed'))
 
     def test_a_musicals_list_before_the_productions_list_is_skipped(self):
         # The page's musicals table comes first and must never be read as
