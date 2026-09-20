@@ -384,8 +384,13 @@ class NothingFresh(Exception):
 # year and never otherwise. 180 days is each card at most twice a year;
 # with WEST_END_SHOWS_COOLDOWN_DAYS below spacing the four cuts out, the
 # vein leads about once every six weeks at most. A vein not named here
-# keeps the plain rule: spent until the value changes.
-SPENT_EXPIRY_DAYS = {'west_end_shows': 180}
+# keeps the plain rule: spent until the value changes. west_end (SOLT and
+# UK Theatre's annual report) and london_cinema (the BFI yearbook) joined
+# the same evening, his call ("Do the same"): each is one pair, so the
+# expiry alone holds it to one card per 180 days and no cooldown of its
+# own is needed; the model may pick a different subset of its facts the
+# second time, which is variety rather than repetition.
+SPENT_EXPIRY_DAYS = {'west_end_shows': 180, 'west_end': 180, 'london_cinema': 180}
 
 
 def posted_lines(history_path=CARD_HISTORY, now=None):

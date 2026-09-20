@@ -313,7 +313,7 @@ class SpentFacts(unittest.TestCase):
         self.assertIn(('police_boroughs 200', '1'), seen)
         self.assertIn(('unreadable', '1'), seen)
         self.assertIn(('“Cats”, 1981 production', '8,949'), seen)   # the 100-day card holds it
-        self.assertEqual(S.SPENT_EXPIRY_DAYS, {'west_end_shows': 180})
+        self.assertEqual(S.SPENT_EXPIRY_DAYS, {'west_end_shows': 180, 'west_end': 180, 'london_cinema': 180})
 
     def test_west_end_shows_has_its_own_three_week_cooldown(self):
         pool = [{'id': f'west_end_shows:{i}', 'vein': 'west_end_shows', 'label': str(i), 'value': '1'}
