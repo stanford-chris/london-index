@@ -600,13 +600,23 @@ def harvest_tfl_bikes():
     total_docks = sum(int(prop(bp, 'NbDocks') or 0) for bp in d)
     zero_bike = sum(1 for bp in d if int(prop(bp, 'NbBikes') or 0) == 0)
     url = 'https://api.tfl.gov.uk/BikePoint'
+    # The title is fixed here, so the first row need not repeat the scheme's
+    # name: his call on 23 September 2026, on a live card reading "Santander
+    # Cycles" over "Santander Cycles available now". Left to the model the
+    # title had been "Cycle hire network" and "London's cycle hire scheme",
+    # which a bare "Available now" row would not survive.
+    # BikePoint counts DOCKED bikes only. Bikes out on hire, in depots or in
+    # redistribution vans are in no field of this feed, so it cannot give the
+    # size of the fleet.
+    opener = {'emoji': '🚲', 'text': 'Santander Cycles'}
     facts = [
-        fact(f'{total_bikes:,}', 'Santander Cycles available now',
-             'TfL BikePoint', url),
+        fact(f'{total_bikes:,}', 'Available now',
+             'TfL BikePoint', url, fixed_opener=opener),
         fact(f'{zero_bike} of {len(d):,}',
-             'Docking stations with no bikes', 'TfL BikePoint', url),
+             'Docking stations with no bikes', 'TfL BikePoint', url,
+             fixed_opener=opener),
         fact(f'{total_docks:,}', 'Docking points across the scheme',
-             'TfL BikePoint', url),
+             'TfL BikePoint', url, fixed_opener=opener),
     ]
     return facts, None
 
