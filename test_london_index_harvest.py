@@ -994,8 +994,10 @@ class DatastoreSeries(unittest.TestCase):
         self.assertEqual(c['dateline'], 'Four weeks, 28 June to 25 July 2026')
         # The footnote says the period is the newest published, TfL's
         # four-week span turned round into a sentence (12 September 2026).
+        # Capital T, "are", and no year, since the second line already
+        # carries it (his calls, 22 September 2026).
         self.assertEqual(c['footnote'],
-                         'the four weeks to 25 July 2026 is the latest period for which data is available')
+                         'The four weeks to 25 July are the latest period for which data is available')
 
 
 class LatestNote(unittest.TestCase):

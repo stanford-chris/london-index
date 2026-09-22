@@ -294,10 +294,12 @@ def _latest_note(picks, dateline_text):
 
     A spelled-out period (dateline_text) is restated as it stands, except
     TfL's "Four weeks, 28 June to 25 July 2026", which reads as a sentence
-    only turned round: "the four weeks to 25 July 2026 is the latest period
-    for which data is available". No full stop, since footnotes on this
-    account carry none (see MUSEUM_NOTE_GROUP); compose() joins it to the
-    context note with a middle dot.
+    only turned round: "The four weeks to 25 July are the latest period
+    for which data is available". Capital T and a plural verb, his call,
+    22 September 2026, on the live card of that day; the year goes for the
+    reason below. No full stop, since footnotes on this account carry none
+    (see MUSEUM_NOTE_GROUP); compose() joins it to the context note with a
+    middle dot.
 
     Narrowed 13 September 2026, his call: dropped entirely when the real
     period (`p`, whatever the displayed dateline_text says) is no more
@@ -308,9 +310,11 @@ def _latest_note(picks, dateline_text):
     A month or a day drops its YEAR, his call, 20 September 2026: "July is
     the latest month for which data is available" under a second line
     already reading "July 2026" (a live house-prices card that day said
-    "July 2026" twice, two lines apart). A bare year has nothing else to
-    say, and a spelled-out dateline_text is restated as the publisher
-    gives it, so neither changes.
+    "July 2026" twice, two lines apart). TfL's four weeks followed on
+    22 September ("the four weeks to 25 July 2026" under "28 June to
+    25 July 2026", the same duplication). A bare year has nothing else to
+    say, and any other spelled-out dateline_text is restated as the
+    publisher gives it, so neither changes.
     """
     if _is_live(picks):
         return ''
@@ -320,10 +324,9 @@ def _latest_note(picks, dateline_text):
         return ''
     if dateline_text:
         if dateline_text.startswith('Four weeks, ') and p and _is_single_day(picks):
-            subject = f'the four weeks to {_readable_period(p)}'
-        else:
-            subject = dateline_text
-        return f'{subject} is the latest period for which data is available'
+            return (f'The four weeks to {_period_sans_year(p)} are the latest period '
+                    'for which data is available')
+        return f'{dateline_text} is the latest period for which data is available'
     if not p:
         return ''
     if _is_single_day(picks):
