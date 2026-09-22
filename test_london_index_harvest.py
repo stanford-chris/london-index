@@ -1049,11 +1049,13 @@ class LatestNote(unittest.TestCase):
         mixed = [H.fact('1', 'a', 's', 'u', period='2026-06'), H.fact('2', 'b', 's', 'u', period='2026-07')]
         self.assertEqual(self.compose(mixed)['footnote'], '')
 
-    def test_a_spelled_out_period_is_restated_as_it_stands(self):
+    def test_a_spelled_out_period_is_restated_without_its_year(self):
+        # The second line already reads "May to July 2026"; the footnote
+        # says "May to July" (his call, 22 September 2026).
         facts = [H.fact('1', 'a', 's', 'u', period='2026-07', dateline_text='May to July 2026'),
                  H.fact('2', 'b', 's', 'u', period='2026-07', dateline_text='May to July 2026')]
         self.assertEqual(self.compose(facts)['footnote'],
-                         'May to July 2026 is the latest period for which data is available')
+                         'May to July is the latest period for which data is available')
 
 
 class LatestNoteFreshness(unittest.TestCase):

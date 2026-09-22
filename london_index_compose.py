@@ -312,9 +312,10 @@ def _latest_note(picks, dateline_text):
     already reading "July 2026" (a live house-prices card that day said
     "July 2026" twice, two lines apart). TfL's four weeks followed on
     22 September ("the four weeks to 25 July 2026" under "28 June to
-    25 July 2026", the same duplication). A bare year has nothing else to
-    say, and any other spelled-out dateline_text is restated as the
-    publisher gives it, so neither changes.
+    25 July 2026", the same duplication), and the ONS rolling quarter the
+    same day ("May to July" under "May to July 2026"): a spelled-out
+    dateline_text loses a trailing year and is otherwise restated as the
+    publisher gives it. A bare year has nothing else to say and keeps it.
     """
     if _is_live(picks):
         return ''
@@ -326,7 +327,8 @@ def _latest_note(picks, dateline_text):
         if dateline_text.startswith('Four weeks, ') and p and _is_single_day(picks):
             return (f'The four weeks to {_period_sans_year(p)} are the latest period '
                     'for which data is available')
-        return f'{dateline_text} is the latest period for which data is available'
+        subject = re.sub(r' \d{4}$', '', dateline_text)
+        return f'{subject} is the latest period for which data is available'
     if not p:
         return ''
     if _is_single_day(picks):
