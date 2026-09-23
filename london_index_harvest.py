@@ -483,7 +483,7 @@ def tfl_get_json(url, timeout=25):
 
 def fact(value, label, source, url, period=None, pair=None, context_note=None,
          dateline_lead=None, fixed_opener=None, map_pin=None, dateline_text=None,
-         map_zone=None, emoji=None):
+         map_zone=None, emoji=None, clock=True):
     """`pair` tags a fact as part of a pre-detected juxtaposition — a group
     of facts sharing one pair id are offered to the selector as a single
     unit worth building a card around, the same mechanism Seoul Index's
@@ -538,12 +538,18 @@ def fact(value, label, source, url, period=None, pair=None, context_note=None,
     rows are the one exception so far: each row names a different species,
     so a per-row icon identifies it rather than merely decorating it, the
     same reasoning behind Seoul Index's own rescue card carrying one per
-    species line."""
+    species line.
+
+    `clock=False` drops the time from a live card's second line, leaving
+    the day ("23 September"). For a reading that looks forward over days
+    rather than describing this minute, the time adds nothing: the
+    Ticketmaster cards, Chris's call on 24 September 2026 ("We don't need
+    the time in cards like this")."""
     return {'value': value, 'label': label, 'source': source, 'url': url,
             'period': period, 'pair': pair, 'context_note': context_note,
             'dateline_lead': dateline_lead, 'fixed_opener': fixed_opener,
             'map_pin': map_pin, 'dateline_text': dateline_text, 'map_zone': map_zone,
-            'emoji': emoji}
+            'emoji': emoji, 'clock': clock}
 
 
 def pct_of_baseline(fraction):
@@ -3714,21 +3720,22 @@ def events_listing_facts(listings, url=TM_PAGE):
         day, n = max(days.items(), key=lambda kv: (kv[1], kv[0]))
         d = datetime.strptime(day, '%Y-%m-%d')
         facts.append(fact(f'{n:,}', f'Most performances: {d.strftime("%A")} {d.day} {d.strftime("%B")}',
-                          TM_SOURCE, url, pair='events_all', context_note=TM_NOTE, dateline_lead=TM_LEAD))
+                          TM_SOURCE, url, pair='events_all', context_note=TM_NOTE, dateline_lead=TM_LEAD,
+                          clock=False))
     ranked = sorted(venues.items(), key=lambda kv: (-kv[1], kv[0]))[:4]
     if len(ranked) == 4:
         for v, n in ranked:
             facts.append(fact(f'{n:,}', v, TM_SOURCE, url, pair='venues_top', context_note=TM_NOTE,
-                              dateline_lead=TM_LEAD))
+                              dateline_lead=TM_LEAD, clock=False))
     return facts
 
 
 def events_facts(counts, url=TM_PAGE):
     """`counts`: {'week': n, 'day': n, 'month': n, 'segments': {segment: n}}.
     Pair "events_all", fixed opener; live, so the second line carries the
-    clock behind TM_LEAD."""
+    day behind TM_LEAD, without the time (clock=False)."""
     mk = lambda v, label: fact(f'{v:,}', label, TM_SOURCE, url, pair='events_all',
-                               context_note=TM_NOTE, dateline_lead=TM_LEAD)
+                               context_note=TM_NOTE, dateline_lead=TM_LEAD, clock=False)
     facts = [mk(counts['week'], 'All events')]
     if counts.get('day') is not None:
         facts.append(mk(counts['day'], 'Starting in the next 24 hours'))

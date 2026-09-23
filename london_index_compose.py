@@ -178,6 +178,10 @@ def _dateline(picks):
     period still rides the source credit instead — see _period_credit."""
     if _is_live(picks):
         now = datetime.now(LONDON_TZ)
+        # A forward-looking live card (Ticketmaster's week) shows the day
+        # alone; see fact()'s `clock`.
+        if all(f.get('clock', True) is False for f in picks):
+            return now.strftime('%-d %B')
         ampm = 'a.m.' if now.hour < 12 else 'p.m.'
         return now.strftime(f'%-d %B at %-I:%M {ampm}')
     if _is_single_day(picks):

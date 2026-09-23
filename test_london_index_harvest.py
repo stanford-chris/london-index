@@ -1231,6 +1231,20 @@ class Events(unittest.TestCase):
                           ('Sport', '4'), ('Listed for the next 30 days', '5,123')])
         self.assertTrue(all(f['period'] is None and f['pair'] == 'events_all' and f['dateline_lead'] == H.TM_LEAD for f in facts))
 
+    def test_ticketmaster_second_line_carries_the_day_not_the_time(self):
+        # His call, 24 September 2026: the time adds nothing on a card about
+        # the week ahead. A live card without the flag keeps its clock.
+        import london_index_compose as C
+        tm = H.events_facts({'week': 1166, 'segments': {}})
+        self.assertTrue(all(f['clock'] is False for f in tm))
+        self.assertNotIn(' at ', C._dateline(tm))
+        self.assertNotIn('.m.', C._dateline(tm))
+        venues = [H.fact('9', 'X', H.TM_SOURCE, H.TM_PAGE, pair='venues_top',
+                         dateline_lead=H.TM_LEAD, clock=False)]
+        self.assertNotIn('.m.', C._dateline(venues))
+        live = [H.fact('11%', 'Euston', 'TfL', 'u')]
+        self.assertRegex(C._dateline(live), r' at \d{1,2}:\d{2} [ap]\.m\.$')
+
     def test_no_key_and_no_total_are_named_refusals(self):
         with unittest.mock.patch.object(H, '_tm_key', return_value=None):
             facts, err = H.harvest_events()
