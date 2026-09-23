@@ -141,6 +141,46 @@ def _period_credit(picks):
     return '; '.join(readable)[:MAX_FOOTNOTE_CHARS]
 
 
+_WEEKDAYS = ('Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday',
+             'Saturday', 'Sunday')
+_MONTHS = ('January', 'February', 'March', 'April', 'May', 'June', 'July',
+           'August', 'September', 'October', 'November', 'December')
+_DAY_RE = re.compile(r'\b(\d{1,2}) (' + '|'.join(_MONTHS) + r')\b(?: (\d{4}))?')
+
+
+def with_weekday(text, today=None):
+    """Put the day of the week on a second line naming ONE day: '22
+    September at 8:34 p.m.' -> 'Tuesday 22 September at 8:34 p.m.', '12
+    September 2026' -> 'Saturday 12 September 2026'. His call on 24
+    September 2026, after Seoul Index ("Do the same for London Index and
+    KBO"). British order, no comma after the weekday, as the account's
+    dates are British.
+
+    Leaves a month, a year, a range (" to ", so TfL's four weeks) and a
+    line already carrying a weekday alone. A day with no year takes the
+    year that puts it nearest today (a live card's day is today)."""
+    if not text or ' to ' in text or any(w in text for w in _WEEKDAYS):
+        return text
+    found = list(_DAY_RE.finditer(text))
+    if len(found) != 1:
+        return text
+    m = found[0]
+    month, day = _MONTHS.index(m.group(2)) + 1, int(m.group(1))
+    today = today or datetime.now(LONDON_TZ).date()
+    years = ([int(m.group(3))] if m.group(3)
+             else [today.year - 1, today.year, today.year + 1])
+    cands = []
+    for y in years:
+        try:
+            cands.append(date(y, month, day))
+        except ValueError:
+            pass
+    if not cands:
+        return text
+    dt = min(cands, key=lambda c: abs((c - today).days))
+    return f'{text[:m.start()]}{_WEEKDAYS[dt.weekday()]} {text[m.start():]}'
+
+
 def _dateline(picks):
     """The card's masthead date — shown for a genuinely live "right now"
     reading (today's real date and time, since "now" needs an actual
@@ -412,6 +452,8 @@ def compose(sel, pool):
     lead = next((f['dateline_lead'] for f in picks if f.get('dateline_lead')), None)
     if lead:
         dateline = f'{lead}, {dateline}' if dateline else lead
+    # Last, after _latest_note's inputs are settled from the bare date.
+    dateline = with_weekday(dateline)
     # The footnote ends by saying that period is the newest published
     # (see _latest_note); it follows the context note after a middle dot,
     # past the cap, since a sentence cut mid-word is worse than a long

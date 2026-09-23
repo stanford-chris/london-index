@@ -1000,6 +1000,34 @@ class DatastoreSeries(unittest.TestCase):
                          'The four weeks to 25 July are the latest period for which data is available')
 
 
+class WeekdayOnTheSecondLine(unittest.TestCase):
+    """with_weekday(): a single day on the second line carries its weekday,
+    British order, his call on 24 September 2026 ("Do the same for London
+    Index and KBO"). Pinned against a fixed today."""
+
+    def w(self, text, today=(2026, 9, 24)):
+        import london_index_compose as C
+        from datetime import date
+        return C.with_weekday(text, date(*today))
+
+    def test_the_shapes_the_feed_flies(self):
+        for text, want in [
+            ('22 September at 8:34 p.m.', 'Tuesday 22 September at 8:34 p.m.'),
+            ('12 September 2026', 'Saturday 12 September 2026'),
+            ('Departures in the next hour, 13 main stations, 21 September at 12:34 p.m.',
+             'Departures in the next hour, 13 main stations, Monday 21 September at 12:34 p.m.'),
+        ]:
+            self.assertEqual(self.w(text), want)
+
+    def test_months_years_ranges_and_weekdays_are_untouched(self):
+        for text in ('July 2026', '2024-25', 'May to July 2026', '',
+                     'Four weeks, 28 June to 25 July 2026', 'Monday 31 August 2026'):
+            self.assertEqual(self.w(text), text)
+
+    def test_the_year_is_the_one_nearest_today(self):
+        self.assertEqual(self.w('2 January', (2026, 12, 30)), 'Saturday 2 January')  # 2027
+
+
 class LatestNote(unittest.TestCase):
     """Every dated card's footnote ends by naming its period as the newest
     published, his call, 12 September 2026; a live card says nothing."""
@@ -1362,7 +1390,8 @@ class MixedPeriodDay(unittest.TestCase):
         facts = [H.fact('19,426', 'Santander Cycles hired', 's', 'u', period='2026-08-31'),
                  H.fact('25,843', 'Average daily hires', 's', 'u', period='2026')]
         c = self.compose(facts)
-        self.assertEqual(c['dateline'], '31 August 2026')
+        # The weekday joins the day, his call on 24 September 2026.
+        self.assertEqual(c['dateline'], 'Monday 31 August 2026')
         # No longer restated on the source line — that would just repeat
         # the dateline (see _period_credit's own suppression).
         self.assertEqual(c['period_credit'], '')
