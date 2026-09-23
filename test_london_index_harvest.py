@@ -1014,8 +1014,8 @@ class WeekdayOnTheSecondLine(unittest.TestCase):
         for text, want in [
             ('22 September at 8:34 p.m.', 'Tuesday 22 September at 8:34 p.m.'),
             ('12 September 2026', 'Saturday 12 September 2026'),
-            ('Departures in the next hour, 13 main stations, 21 September at 12:34 p.m.',
-             'Departures in the next hour, 13 main stations, Monday 21 September at 12:34 p.m.'),
+            ('Next hour, 13 main stations, 21 September at 12:34 p.m.',
+             'Next hour, 13 main stations, Monday 21 September at 12:34 p.m.'),
         ]:
             self.assertEqual(self.w(text), want)
 
@@ -1367,7 +1367,7 @@ class DatelineLead(unittest.TestCase):
     def test_live_lead_carries_the_clock(self):
         facts = H.rail_facts({'A': [{'std': '09:00', 'etd': 'On time'}] * 2, 'B': [], 'C': [], 'D': []})[:2]
         d = self.compose(facts)['dateline']
-        self.assertTrue(d.startswith('Departures in the next hour, 13 main stations, '), d)
+        self.assertTrue(d.startswith('Next hour, 13 main stations, '), d)
         self.assertRegex(d, r'\d{1,2}:\d\d [ap]\.m\.$')
 
 

@@ -2667,7 +2667,10 @@ RAIL_PAGE = 'https://www.nationalrail.co.uk/'
 # arrivals (12 September 2026), and the board is GetDepartureBoard.
 # Short enough for one line on the card: "…from 13 main stations, 12 September
 # at 1:52 a.m." wrapped, orphaning "a.m." (seen on a render, 12 September 2026).
-RAIL_LEAD = f'Departures in the next hour, {len(RAIL_TERMINI)} main stations'
+# Shortened again from "Departures in the next hour, …" on 24 September 2026,
+# his call, when the weekday joined the date and the orphan came back. The
+# first row ("Departing within the hour") says what is counted.
+RAIL_LEAD = f'Next hour, {len(RAIL_TERMINI)} main stations'
 RAIL_NOTE = 'National Rail, as on the live boards'
 RAIL_TOP_N = 4
 # "Running late, by operator": the boards name the operator of every train,
@@ -2852,7 +2855,7 @@ def rail_facts(boards, url=RAIL_PAGE, baseline_total=None, baseline_on_time_shar
             # "Change from a typical <weekday>", matching spotlight_facts()'s
             # own "Change since <month>" shape rather than inventing a new
             # one. No trailing ", this hour": the dateline (RAIL_LEAD) already
-            # says "Departures in the next hour", so the label repeating it
+            # says "Next hour", so the label repeating it
             # would be the exact redundancy the account's own house style
             # (no word the title already carries) rules out elsewhere.
             facts.append(mk_cmp(change, f'Change from a typical {weekday}'))
