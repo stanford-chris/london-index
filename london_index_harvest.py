@@ -729,9 +729,9 @@ def _river_readings():
 GAUGE_OPENER_PREFIX = 'The '
 # Shortened from "River level against its own typical range" on 24 September
 # 2026, his call, once the weekday joined the date and the line ran to the
-# card's edge. The rows (Typical low, Typical high, Where it sits) and the
-# footnote already say what the range is.
-GAUGE_LEAD = 'River level'
+# card's edge; briefly "River level", then this the same day, his call, to
+# keep a hint of the comparison. The title names the river, so "River" went.
+GAUGE_LEAD = 'Level against its typical range'
 GAUGE_NOTE = 'Environment Agency gauge; the typical range is the band the gauge itself publishes'
 
 
