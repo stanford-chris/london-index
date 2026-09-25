@@ -360,6 +360,10 @@ def _latest_note(picks, dateline_text):
     same day ("May to July" under "May to July 2026"): a spelled-out
     dateline_text loses a trailing year and is otherwise restated as the
     publisher gives it. A bare year has nothing else to say and keeps it.
+    Kept, his call, 25 September 2026, having seen the three year cards
+    rendered three ways: "This is the latest year" (the only footnote not
+    naming its period) and no sentence at all (nothing then says why a 2026
+    card shows 2023) were both rejected.
     """
     if _is_live(picks):
         return ''
