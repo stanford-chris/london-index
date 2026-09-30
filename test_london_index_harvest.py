@@ -264,8 +264,14 @@ class RailFacts(unittest.TestCase):
                           ('Running late', '1', 'rail_all'), ('Cancelled', '1', 'rail_all'),
                           ('Waterloo', '6', 'rail_top'), ('Euston', '3', 'rail_top'),
                           ('Moorgate', '1', 'rail_top'), ('Victoria', '1', 'rail_top')])
-        self.assertTrue(all(f['period'] is None and f['context_note'] == H.RAIL_NOTE
-                            and f['dateline_lead'] == H.RAIL_LEAD for f in facts))
+        self.assertTrue(all(f['period'] is None and f['dateline_lead'] == H.RAIL_LEAD
+                            for f in facts))
+        self.assertEqual({f['context_note'] for f in facts if f['pair'] == 'rail_all'},
+                         {H.RAIL_NOTE})
+        # The ranked card's rows are bare names and counts, so its footnote
+        # says what is counted (30 September 2026).
+        self.assertEqual({f['context_note'] for f in facts if f['pair'] == 'rail_top'},
+                         {'Departures, as on National Rail’s live boards'})
 
     def test_ranked_list_never_carries_a_zero_and_needs_four_busy_stations(self):
         boards = {'St Pancras': [self.svc('01:44', 'On time')] * 2, 'Paddington': [self.svc('01:45', 'On time')],
@@ -373,7 +379,7 @@ class RailFacts(unittest.TestCase):
                   'Victoria': [self.dest_svc('Brighton')] * 8, 'Paddington': [self.dest_svc('Reading')] * 6}
         facts = H.rail_facts(boards)
         top_notes = {f['context_note'] for f in facts if f['pair'] == 'rail_top'}
-        self.assertEqual(top_notes, {H.RAIL_NOTE})   # not the destination sentence
+        self.assertEqual(top_notes, {H.RAIL_TOP_NOTE})   # not the destination sentence
 
     def test_no_key_is_a_named_refusal_not_a_crash(self):
         with unittest.mock.patch.object(H, '_rdm_key', return_value=None):

@@ -2673,9 +2673,14 @@ RAIL_PAGE = 'https://www.nationalrail.co.uk/'
 # at 1:52 a.m." wrapped, orphaning "a.m." (seen on a render, 12 September 2026).
 # Shortened again from "Departures in the next hour, …" on 24 September 2026,
 # his call, when the weekday joined the date and the orphan came back. The
-# first row ("Departing within the hour") says what is counted.
+# first row ("Departing within the hour") says what is counted -- on the
+# rail_all card only. The ranked rail_top card has no such row, so its
+# footnote names the unit instead (RAIL_TOP_NOTE).
 RAIL_LEAD = f'Next hour, {len(RAIL_TERMINI)} main stations'
 RAIL_NOTE = 'National Rail, as on the live boards'
+# His call, 30 September 2026: the ranked card read "St Pancras: 57" under
+# "(National Rail, as on the live boards)" with nothing saying 57 what.
+RAIL_TOP_NOTE = 'Departures, as on National Rail’s live boards'
 RAIL_TOP_N = 4
 # "Running late, by operator": the boards name the operator of every train,
 # so the late ones can be counted by company. At least RAIL_OPS_MIN
@@ -2831,7 +2836,8 @@ def rail_facts(boards, url=RAIL_PAGE, baseline_total=None, baseline_on_time_shar
     the equivalent of a departures board" made it clear that bolting
     another line onto the same table wasn't the fix. It reads as a
     sentence in the footnote instead, folded into RAIL_NOTE for the
-    rail_all pair only (rail_top's own context_note is unaffected)."""
+    rail_all pair only (rail_top carries RAIL_TOP_NOTE, which names the
+    unit, since its rows are bare station names and counts)."""
     agg = _rail_counts(boards)
     counts, per, dests = agg['counts'], agg['per'], agg['dests']
     total = sum(per.values())
@@ -2841,7 +2847,7 @@ def rail_facts(boards, url=RAIL_PAGE, baseline_total=None, baseline_on_time_shar
         all_note = (f'{RAIL_NOTE}. Bound for {len(dests)} different places, '
                    f'more to {leader} than anywhere else.')
     mk_top = lambda v, label: fact(f'{v:,}', label, RAIL_SOURCE, url, pair='rail_top',
-                                   context_note=RAIL_NOTE, dateline_lead=RAIL_LEAD)
+                                   context_note=RAIL_TOP_NOTE, dateline_lead=RAIL_LEAD)
     mk_all = lambda v, label: fact(f'{v:,}', label, RAIL_SOURCE, url, pair='rail_all',
                                    context_note=all_note, dateline_lead=RAIL_LEAD)
     mk_cmp = lambda v, label: fact(v, label, RAIL_SOURCE, url, pair='rail_all',
