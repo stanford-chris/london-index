@@ -78,8 +78,39 @@ def _observe_source_check(key, text):
         pass
 
 
+# Held 7 October 2026, his call ("do all of this for the London Index,
+# too"), after an audit of every vein against live data and an independent
+# figure found these posting figures their labels overstate. Each is released
+# as it is fixed. A held vein still harvests when asked for by name
+# (build_pool(source=...)), so a fix can be previewed.
+#   laqn: "boroughs with a monitor" counts every listed borough (33; 14 report)
+#   station_usage: Tube rows carry Elizabeth line, DLR and Overground taps
+#   river_levels, river_gauge: no staleness check (one gauge 12 hours old);
+#     six gauges under a London-wide title; stage, not depth
+#   police: "reported crime" includes anti-social behaviour (13 percent)
+#   daily_footfall: "quietest" can be a station partly closed that day
+#   rail_departures: a train is counted at every terminus it calls at
+#   road_works: 45 percent are off TfL's red routes, the card says red routes
+#   dcms_museums, museum_spotlight: group totals include sites outside London
+#   congestion_charge: vehicle-days labelled vehicles; one impossible month
+#   events: one ticket seller's listings as "all events" in London
+#   london_cinema: the ITV London region (13.6m), not Greater London (8.9m)
+#   arrests: custody records, and "most common offence" ignores "other"
+#   west_end_shows: SOLT's list is from January 2025; membership has moved
+#   lfb_animals: incidents labelled "animals rescued"
+#   lift_releases: incidents titled "people stuck in lifts"
+#   stop_search: "for weapons" leaves out firearms and section 60
+#   reservoirs: Thames Water's two groups as "London's reservoirs"; 122 rows
+#     in another date format silently dropped
+HELD_VEINS = {'laqn', 'station_usage', 'river_levels', 'river_gauge', 'police',
+              'daily_footfall', 'rail_departures', 'road_works', 'dcms_museums',
+              'museum_spotlight', 'congestion_charge', 'events', 'london_cinema',
+              'arrests', 'west_end_shows', 'lfb_animals', 'lift_releases',
+              'stop_search', 'reservoirs'}
+
+
 def build_pool(source=None):
-    keys = [source] if source else sorted(harvest.HARVESTERS)
+    keys = [source] if source else sorted(k for k in harvest.HARVESTERS if k not in HELD_VEINS)
     pool = []
     errors = {}
     for key in keys:

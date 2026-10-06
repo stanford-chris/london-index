@@ -556,6 +556,25 @@ class SourceChecks(unittest.TestCase):
         with self.assertRaises(H.SourceCheckFailed):
             H.reconcile('nothing', 1, None, 0.05)
 
+class HeldVeins(unittest.TestCase):
+    def test_the_live_hold_is_the_one_he_asked_for(self):
+        # Pins the current hold; change this test as each vein is released.
+        import london_index_select as Sel
+        self.assertEqual(len(Sel.HELD_VEINS), 19)
+
+    def test_a_held_vein_is_not_harvested_unless_asked_for(self):
+        import london_index_harvest as H
+        import london_index_select as Sel
+        called = []
+
+        def held():
+            called.append('held')
+            return [{'label': 'x', 'value': '1'}], None
+        with unittest.mock.patch.dict(H.HARVESTERS, {'laqn': held}, clear=True):
+            self.assertEqual(Sel.build_pool()[0], [])
+            self.assertEqual(len(Sel.build_pool('laqn')[0]), 1)
+        self.assertEqual(called, ['held'])
+
 
 if __name__ == '__main__':
     unittest.main()
