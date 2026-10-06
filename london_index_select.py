@@ -62,12 +62,35 @@ def _slug(s):
     return re.sub(r'[^a-z0-9]+', '-', s.lower()).strip('-')[:40]
 
 
+OBSERVE = Path.home() / 'Scripts' / 'observe.py'
+
+
+def _observe_source_check(key, text):
+    """File a failed source check, from a real run only: never from a test or
+    a dry run, which would invent a fault (Seoul Index's 27 August lesson)."""
+    if 'unittest' in sys.modules or '--dry-run' in sys.argv:
+        return
+    try:
+        subprocess.run(['python3', str(OBSERVE), 'add', '--source', 'london-index-source-check',
+                        '--kind', 'finding', '--key', f'london-index-source-check-{key}', text],
+                       check=False, capture_output=True, timeout=20)
+    except Exception:                       # noqa: BLE001
+        pass
+
+
 def build_pool(source=None):
     keys = [source] if source else sorted(harvest.HARVESTERS)
     pool = []
     errors = {}
     for key in keys:
-        facts, err = harvest.HARVESTERS[key]()
+        try:
+            facts, err = harvest.HARVESTERS[key]()
+        except harvest.SourceCheckFailed as e:
+            # A failed source check (see harvest.require) withholds this vein
+            # for the run, like any other harvester error, and is filed with
+            # the observation log so one that keeps failing is seen.
+            facts, err = [], f'source check failed: {e}'
+            _observe_source_check(key, str(e))
         if err:
             errors[key] = err
             continue

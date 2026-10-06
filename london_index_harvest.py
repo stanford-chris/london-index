@@ -568,6 +568,43 @@ def pct_of_baseline(fraction):
     return f'{pct:.0f}% of baseline'
 
 
+# --- source checks -----------------------------------------------------------
+# His call, 7 October 2026, after an audit of the sister bot (Seoul Index)
+# found a dozen cards posting figures their labels overstated, every one
+# caught only by setting the figure against an INDEPENDENT one or by reading
+# the raw rows. A harvester now does that as it builds its facts:
+#
+#   RECONCILE: compare a figure with a second publisher, table or endpoint
+#     and refuse outside a MEASURED tolerance (reconcile()).
+#   SHAPE: assert what the raw feed must look like for the label to be true
+#     (every borough present, every page fetched) (require()).
+#
+# A failed check raises SourceCheckFailed; london_index_select.build_pool()
+# treats it as that vein's error for the run, so the vein is withheld, and
+# files it with the estate's observation log. ⚠️ Never a plausibility range
+# on the figure itself: stable wrong figures look plausible. What each vein
+# counts and checks is written down in london_index_provenance.py.
+
+
+class SourceCheckFailed(Exception):
+    """A vein's figure or feed failed its own source check: withhold it."""
+
+
+def require(cond, msg):
+    """Raise SourceCheckFailed(msg) unless cond holds."""
+    if not cond:
+        raise SourceCheckFailed(msg)
+
+
+def reconcile(name, ours, theirs, rel_tol):
+    """Require ours to be within rel_tol of theirs (0 means exactly equal)."""
+    require(theirs not in (None, 0), f'{name}: no independent figure to check against')
+    diff = abs(ours - theirs) / abs(theirs)
+    require(diff <= rel_tol,
+            f'{name}: {ours:,.0f} against {theirs:,.0f} ({diff:.1%} apart, '
+            f'tolerance {rel_tol:.1%})')
+
+
 def dead_heat(values, rel_threshold=0.02):
     """The two (name, value) entries whose values are closest, if within
     rel_threshold of each other (relative gap = |a-b|/max(|a|,|b|)) — the
@@ -4284,7 +4321,10 @@ def main():
     pool = []
     errors = {}
     for key in keys:
-        facts, err = HARVESTERS[key]()
+        try:
+            facts, err = HARVESTERS[key]()
+        except SourceCheckFailed as e:
+            facts, err = [], f'source check failed: {e}'
         if err:
             errors[key] = err
         for f in facts:

@@ -16,6 +16,7 @@ the one test that exercises select()'s wiring end to end.
 """
 import sys
 import unittest
+import unittest.mock
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
@@ -528,6 +529,32 @@ class CarriedFixedOpener(unittest.TestCase):
         with patch('subprocess.run', side_effect=fake_run):
             sel = S.select(pool, {}, history_path='/nonexistent')
         self.assertEqual(sel['opener']['text'], 'Model said')
+
+class SourceChecks(unittest.TestCase):
+    """A failed source check withholds that one vein as an error for the run,
+    7 October 2026, and nothing else."""
+
+    def test_a_failed_check_is_that_veins_error(self):
+        import london_index_harvest as H
+        import london_index_select as Sel
+
+        def bad():
+            H.require(False, 'one direction only')
+
+        def good():
+            return [{'label': 'x', 'value': '1'}], None
+        with unittest.mock.patch.dict(H.HARVESTERS, {'bad': bad, 'good': good}, clear=True):
+            pool, errors = Sel.build_pool()
+        self.assertEqual([f['vein'] for f in pool], ['good'])
+        self.assertIn('one direction only', errors['bad'])
+
+    def test_reconcile_holds_its_tolerance(self):
+        import london_index_harvest as H
+        H.reconcile('same', 100, 100, 0)
+        with self.assertRaises(H.SourceCheckFailed):
+            H.reconcile('far', 106, 100, 0.05)
+        with self.assertRaises(H.SourceCheckFailed):
+            H.reconcile('nothing', 1, None, 0.05)
 
 
 if __name__ == '__main__':
