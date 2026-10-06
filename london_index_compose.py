@@ -400,6 +400,10 @@ def _period_sans_year(p):
     return _readable_period(p)
 
 
+# (trigger in the title, suffix dropped from a row ending in it)
+TITLE_WORD_STRIPS = [('air quality', ' air quality')]
+
+
 def compose(sel, pool):
     by_id = {f['id']: f for f in pool}
     picks = [by_id[i] for i in sel['ids'] if i in by_id][:MAX_LINES]
@@ -411,6 +415,14 @@ def compose(sel, pool):
     # only vein that does; every other line renders exactly as before.
     lines = [{'label': f['label'], 'value': f['value'],
              **({'emoji': f['emoji']} if f.get('emoji') else {})} for f in picks]
+    # A row drops the subject its own title names, his call, 6 October 2026:
+    # "Readings above “Low” air quality" under "London air quality". The air
+    # card's title is the model's, so the cut waits on the title saying it.
+    title = ((sel.get('opener') or {}).get('text') or '').lower()
+    for line in lines:
+        for trigger, old in TITLE_WORD_STRIPS:
+            if trigger in title and line['label'].endswith(old):
+                line['label'] = line['label'][:-len(old)]
 
     # Credit every distinct source, in the order its first pick appears —
     # this is the reply's job, as a real clickable link per source. The

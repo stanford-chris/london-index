@@ -1436,7 +1436,9 @@ def spotlight_facts(name, total, categories, prev_total, all_counts, ym, url,
                                context_note=note if note is not None else SPOTLIGHT_NOTE,
                                dateline_lead=SPOTLIGHT_LEAD, fixed_opener=opener, map_pin=pin)
     top = max(categories.items(), key=lambda kv: kv[1])
-    facts = [mk(f'{total:,}', 'Reported crimes'),
+    # "Total", not "Reported crimes": the title is "Reported crime in <borough>",
+    # his call, 6 October 2026 (no word the title already carries).
+    facts = [mk(f'{total:,}', 'Total'),
              mk(f'{top[1]:,}', f'Most common: {name_fn(top[0])}')]
     if prev_total:
         change = _pct_change(total, prev_total)
@@ -2533,7 +2535,9 @@ def road_facts(items, url=ROADS_PAGE):
     mk = lambda v, label: fact(f'{v:,}', label, 'TfL Road disruptions', url,
                                pair='roads_all', context_note=ROADS_NOTE,
                                dateline_lead=ROADS_LEAD)
-    return [mk(total, 'Disruptions on TfL roads'), mk(serious, 'Moderate or worse'),
+    # "Disruptions" alone: the title says roadworks and disruptions and the
+    # dateline "TfL’s red routes", his call, 6 October 2026.
+    return [mk(total, 'Disruptions'), mk(serious, 'Moderate or worse'),
             mk(works, 'Planned roadworks')]
 
 
@@ -3381,7 +3385,9 @@ def arrests_facts(rows, url=ARRESTS_PAGE):
     top = max(named.items(), key=lambda kv: kv[1])
     mk = lambda v, label: fact(v, label, f'{DATASTORE} (MPS custody data)', url, period=ym,
                                pair='arrests_all', context_note=ARRESTS_NOTE)
-    facts = [mk(f'{m["total"]:,}', 'Arrests'), mk(f'{top[1]:,}', f'Most common offence: {top[0]}'),
+    # "Total": the title is "Arrests by the Metropolitan Police", his call,
+    # 6 October 2026.
+    facts = [mk(f'{m["total"]:,}', 'Total'), mk(f'{top[1]:,}', f'Most common offence: {top[0]}'),
              mk(f'{m["da"]:,}', 'Flagged as domestic abuse')]
     prev = months.get(_shift_month(ym, 12))
     if prev:

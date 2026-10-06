@@ -202,7 +202,7 @@ class RoadFacts(unittest.TestCase):
                 [{'severity': 'Serious', 'category': 'Network delays'}]
         facts = H.road_facts(items)
         self.assertEqual([(f['label'], f['value']) for f in facts],
-                         [('Disruptions on TfL roads', '6'), ('Moderate or worse', '2'),
+                         [('Disruptions', '6'), ('Moderate or worse', '2'),
                           ('Planned roadworks', '5')])
         self.assertTrue(all(f['period'] is None for f in facts))
 
@@ -660,7 +660,7 @@ class Spotlight(unittest.TestCase):
         counts['Newham'] = 482
         facts = H.spotlight_facts('Newham', 482, cats, 400, counts, '2026-07', 'u')
         self.assertEqual([(f['label'], f['value']) for f in facts],
-                         [('Reported crimes', '482'), ('Most common: Violent crime', '359'),
+                         [('Total', '482'), ('Most common: Violent crime', '359'),
                           ('Change since June', '+20%'), ('Rank among boroughs', '29th highest of 33')])
         for f in facts:
             self.assertEqual(f['fixed_opener'], {'emoji': '🚓', 'text': 'Reported crime in Newham'})
@@ -669,7 +669,7 @@ class Spotlight(unittest.TestCase):
 
     def test_no_rank_when_too_few_boroughs_answered(self):
         facts = H.spotlight_facts('Bexley', 5, {'burglary': 5}, None, {'Bexley': 5, 'Brent': 9}, '2026-07', 'u')
-        self.assertEqual([f['label'] for f in facts], ['Reported crimes', 'Most common: Burglary'])
+        self.assertEqual([f['label'] for f in facts], ['Total', 'Most common: Burglary'])
 
 
 class HousePriceSpotlight(unittest.TestCase):
@@ -967,7 +967,7 @@ class DatastoreSeries(unittest.TestCase):
                 (2026, 8, 'August', 'Male', 'Adult', 'White', 'Other Offence', 'No', 5000)]
         facts = H.arrests_facts(rows)
         self.assertEqual([(f['label'], f['value']) for f in facts],
-                         [('Arrests', '6,100'), ('Most common offence: Assault', '900'),
+                         [('Total', '6,100'), ('Most common offence: Assault', '900'),
                           ('Flagged as domestic abuse', '300'), ('Change on a year earlier', '+510%')])
         self.assertTrue(all(f['period'] == '2026-08' for f in facts))
 
@@ -1698,6 +1698,31 @@ class WestEndShows(unittest.TestCase):
 
 
 import unittest.mock  # noqa: E402  (used by HousePriceFacts)
+
+
+class TitleWordsAreNotRepeated(unittest.TestCase):
+    """compose() drops a row's subject when the title already names it, his
+    call, 6 October 2026, and keeps it when the title does not."""
+
+    def labels(self, title):
+        facts = [H.fact('12', 'Readings above "Low" air quality', 'LAQN', 'u'),
+                 H.fact('30', 'Boroughs with a monitor', 'LAQN', 'u')]
+        for i, f in enumerate(facts):
+            f['id'] = f'air:{i}'
+            f['vein'] = 'air_quality'
+        import london_index_compose as C
+        c = C.compose({'opener': {'emoji': '', 'text': title},
+                       'ids': [f['id'] for f in facts]}, facts)
+        return [l['label'] for l in c['lines']]
+
+    def test_under_an_air_quality_title(self):
+        self.assertEqual(self.labels('London air quality'),
+                         ['Readings above "Low"', 'Boroughs with a monitor'])
+
+    def test_under_a_title_not_naming_it(self):
+        self.assertEqual(self.labels('London, right now'),
+                         ['Readings above "Low" air quality', 'Boroughs with a monitor'])
+
 
 if __name__ == '__main__':
     unittest.main()
