@@ -478,18 +478,48 @@ def posted_cards(history_path=CARD_HISTORY):
 GENERAL_COOLDOWN_HOURS = 20
 
 
-def recently_led(state, hours=GENERAL_COOLDOWN_HOURS):
-    """The veins stamped in vein_last_at within the last `hours`."""
-    out = set()
+def apply_recent_cooldown(pool, state, hours=GENERAL_COOLDOWN_HOURS):
+    """Hold out every vein that led within `hours`, releasing the STALEST
+    first when holding them all would leave nothing to post.
+
+    Added 7 October 2026. Until then the general cooldown went through
+    apply_cooldown() as one group, so it was all or nothing: on 6 October
+    river levels led at 8:00, and at 12:30 holding it and the train
+    departures vein (led 16 hours earlier) left nothing pickable, so BOTH
+    were released and river levels led again, two posts in a row. Released
+    oldest first, the train vein would have come back and river levels
+    stayed held. The vein that led the previous post now returns only when
+    it is the one thing left with a card in it.
+    """
     now = datetime.now(timezone.utc)
+    led = []
     for vein, stamp in (state.get('vein_last_at') or {}).items():
         try:
             age = now - datetime.fromisoformat(stamp)
         except (ValueError, TypeError):
             continue
         if age < timedelta(hours=hours):
-            out.add(vein)
-    return out
+            led.append((age, vein))
+    if not led:
+        return pool
+    led.sort()                      # newest first, so pop() takes the stalest
+    total = int(hours)
+    while led:
+        held = {v for _, v in led}
+        cooled = [f for f in pool if f['vein'] not in held]
+        if pickable(cooled):
+            desc = ', '.join(f'{v} ({int(a.total_seconds() // 3600)}h of {total}h)'
+                             for a, v in led)
+            print(f'Veins that led within the day on cooldown: {desc} - '
+                  f'{len(pool) - len(cooled)} fact(s) withheld.')
+            return cooled
+        age, vein = led.pop()
+        print(f'Released {vein} ({int(age.total_seconds() // 3600)}h of '
+              f'{total}h), the stalest on cooldown: holding every vein that '
+              'led within the day would leave nothing to post.')
+    print('Every vein that led within the day was released: nothing else '
+          'has a card in it.')
+    return pool
 
 
 # --- Vein rotation: cooldowns + starve-floor --------------------------
@@ -597,6 +627,10 @@ def apply_cooldown(pool, state, veins, days, label):
     cooled = [f for f in pool if f['vein'] not in veins]
     remaining = collections.Counter(f['vein'] for f in cooled)
     if not any(n >= 2 for n in remaining.values()):
+        # Said out loud since 7 October 2026: this return was silent, and
+        # the only trace of the 6 October repeat was a log line missing.
+        print(f'{label} cooldown dropped: holding it would leave nothing '
+              'to post.')
         return pool
     hours = int(newest_age.total_seconds() // 3600)
     print(f'{label} on cooldown ({hours}h of {int(round(days * 24))}h) - '
@@ -688,10 +722,7 @@ def select(pool, state, history_path=CARD_HISTORY):
                           DCMS_MUSEUMS_COOLDOWN_DAYS, 'DCMS museums')
     pool = apply_cooldown(pool, state, WEST_END_SHOWS_VEINS,
                           WEST_END_SHOWS_COOLDOWN_DAYS, 'West End shows cards')
-    recent = recently_led(state)
-    if recent:
-        pool = apply_cooldown(pool, state, recent, GENERAL_COOLDOWN_HOURS / 24,
-                              'Veins that led within the day')
+    pool = apply_recent_cooldown(pool, state)
     pool, _promoted = promote_starved(pool, state)
 
     avoid = state.get('recent_ids', [])[-RECENT_IDS_KEEP:]
