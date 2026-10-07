@@ -1762,80 +1762,94 @@ def _as_list(x):
     return x if isinstance(x, list) else ([x] if x else [])
 
 
-def laqn_checks(las, readings, sites_doc=None):
+def laqn_sites(las):
+    """[(site's highest index this hour, site name, borough, species, band)]
+    for every site with at least one numeric reading. A species reading
+    "No data" (105 of 194 on the night of 7 October 2026) is not a reading,
+    so a site with nothing else is not reporting."""
+    out = []
+    for la in las:
+        for s in _as_list(la.get('Site')):
+            best = None
+            for sp in _as_list(s.get('Species')):
+                if not isinstance(sp, dict):
+                    continue
+                band, idx = sp.get('@AirQualityBand'), str(sp.get('@AirQualityIndex') or '')
+                if band in (None, 'No data') or not idx.isdigit():
+                    continue
+                if best is None or int(idx) > best[0]:
+                    best = (int(idx), sp.get('@SpeciesDescription'), band)
+            if best:
+                out.append((best[0], s.get('@SiteName'), la.get('@LocalAuthorityName'),
+                            best[1], best[2]))
+    return out
+
+
+def laqn_checks(las, sites_doc=None):
     """The hourly index (see london_index_provenance.py). `sites_doc` is the
     MonitoringSites answer, fetched when not given."""
-    sites, reporting, bulletins = [], set(), set()
+    sites, bulletins = [], set()
     for la in las:
         for s in _as_list(la.get('Site')):
             sites.append(s.get('@SiteCode'))
             bulletins.add(s.get('@BulletinDate'))
-            if any(isinstance(sp, dict) and sp.get('@AirQualityBand') not in (None, 'No data')
-                   for sp in _as_list(s.get('Species'))):
-                reporting.add(la.get('@LocalAuthorityName'))
     require(len(set(sites)) == len(sites), 'LAQN: a site appears twice in the hourly index')
     require(len(bulletins) == 1, f'LAQN: sites carry {len(bulletins)} different bulletin hours')
+    # The feed lists all 33 local authorities, those without a site too
+    # (12 had none on 7 October 2026): the card's "of 33" rests on that.
+    require(len(las) == 33, f'LAQN: {len(las)} local authorities listed, not 33')
     sites_doc = sites_doc if sites_doc is not None else get_json(LAQN_SITES_URL)
     listed = _as_list(((sites_doc or {}).get('Sites') or {}).get('Site'))
     open_sites = [s for s in listed if not s.get('@DateClosed')]
     reconcile('LAQN sites in the hourly index against open sites', len(set(sites)),
               len(open_sites), LAQN_SITES_TOLERANCE)
-    # "Boroughs with a monitor" is len(LocalAuthority): every borough the feed
-    # lists, 33, of which 14 had a site reporting this hour on 7 October 2026.
-    # Fails until the card counts reporting boroughs (why it is held).
-    require(len(las) == len(reporting),
-            f'LAQN: {len(las)} boroughs listed, {len(reporting)} with a site reporting')
-    # "Worst reading" must be one reading: a tie (15 at index 2 on the night
-    # of 6 October) is decided by the sort, not the air.
-    if readings:
-        top = max(r[0] for r in readings)
-        tied = sum(1 for r in readings if r[0] == top)
-        require(tied == 1, f'LAQN: {tied} readings tie for the worst, index {top}')
 
 
 def harvest_laqn():
+    """London's air this hour, by SITE, not by species reading.
+
+    ⚠️ Rebuilt 8 October 2026 after the source audit (held 7 October).
+    "Boroughs with a monitor" was the feed's list of local authorities, 33,
+    when 14 had a site reporting; "Readings above Low" counted species
+    readings and left out that over half read "No data"; and "Worst
+    reading" took the alphabetically last of up to 15 tied readings. Now:
+    sites above "Low" out of sites reporting, boroughs with a site reporting
+    out of 33, and the highest reading named only when one site holds it.
+    """
     d = get_json('https://api.erg.ic.ac.uk/AirQuality/Hourly/MonitoringIndex/GroupName=London/Json')
     if not isinstance(d, dict):
         return [], 'LAQN fetch failed'
-    las = d.get('HourlyAirQualityIndex', {}).get('LocalAuthority', [])
-    if not isinstance(las, list):
-        las = [las]
-    bands = {}
-    readings = []
-    for la in las:
-        sites = la.get('Site', [])
-        if not isinstance(sites, list):
-            sites = [sites]
-        for s in sites:
-            species = s.get('Species', [])
-            if not isinstance(species, list):
-                species = [species]
-            for sp in species:
-                if not isinstance(sp, dict):
-                    continue
-                band = sp.get('@AirQualityBand')
-                if band:
-                    bands[band] = bands.get(band, 0) + 1
-                idx = sp.get('@AirQualityIndex')
-                if idx and str(idx).isdigit():
-                    readings.append((int(idx), s.get('@SiteName'), sp.get('@SpeciesDescription'), band))
-    if not bands:
-        return [], 'no site readings found'
-    laqn_checks(las, readings)
+    las = _as_list(d.get('HourlyAirQualityIndex', {}).get('LocalAuthority', []))
+    sites = laqn_sites(las)
+    if not sites:
+        return [], 'no site reporting a reading'
+    laqn_checks(las)
     url = 'https://www.londonair.org.uk/'
+    src = 'London Air Quality Network'
+    # The card is dated by its readings, not by the run: BulletinDate is GMT
+    # (it matched the newest @MeasurementDateGMT of the raw data, 20:00, on
+    # 7 October 2026), an hour or more behind the clock. One bulletin hour
+    # is a source check above.
+    bulletin = next(s.get('@BulletinDate') for la in las for s in _as_list(la.get('Site')))
+    at = (datetime.strptime(bulletin, '%Y-%m-%d %H:%M:%S').replace(tzinfo=timezone.utc)
+          .astimezone(ZoneInfo('Europe/London')))
+    when = at.strftime(f'%-d %B at %-I {"a.m." if at.hour < 12 else "p.m."}')
+    above = sum(1 for *_, band in sites if band != 'Low')   # the feed's own band
+    boroughs = {b for _, _, b, _, _ in sites}
     facts = [
-        fact(str(sum(v for k, v in bands.items() if k not in ('Low', 'No data'))),
-             'Readings above "Low" air quality',
-             'London Air Quality Network', url),
-        fact(f'{len(las)}', 'Boroughs with a monitor',
-             'London Air Quality Network', url),
+        fact(f'{above} of {len(sites)}', 'Sites above “Low”', src, url, dateline_text=when),
+        fact(f'{len(boroughs)} of {len(las)}', 'Boroughs with a site reporting', src, url,
+             dateline_text=when),
     ]
-    if readings:
-        readings.sort(reverse=True)
-        idx, site, species, band = readings[0]
-        facts.append(fact(f'index {idx} ({band})',
-                           f'Worst reading: {species} at {site}',
-                           'London Air Quality Network', url))
+    top = max(idx for idx, *_ in sites)
+    at_top = [s for s in sites if s[0] == top]
+    if len(at_top) == 1:
+        _, site, _, species, band = at_top[0]
+        facts.append(fact(f'index {top} ({band})', f'Highest reading: {species} at {site}',
+                          src, url, dateline_text=when))
+    else:
+        facts.append(fact(f'index {top} ({at_top[0][4]}), at {len(at_top)} sites',
+                          'Highest reading', src, url, dateline_text=when))
     return facts, None
 
 

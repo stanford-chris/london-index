@@ -1881,26 +1881,59 @@ class CycleHireChecks(unittest.TestCase):
 
 
 class LaqnChecks(unittest.TestCase):
-    def la(self, name, band, idx='2', code=None):
-        return {'@LocalAuthorityName': name, 'Site': {'@SiteCode': code or name, '@BulletinDate': '2026-10-07 11:00:00',
-                'Species': [{'@AirQualityBand': band, '@AirQualityIndex': idx}]}}
+    def la(self, name, band, idx='2', code=None, species='Nitrogen Dioxide', site=None):
+        return {'@LocalAuthorityName': name,
+                'Site': {'@SiteCode': code or name, '@SiteName': site or f'{name} - Road',
+                         '@BulletinDate': '2026-10-07 11:00:00',
+                         'Species': [{'@AirQualityBand': band, '@AirQualityIndex': idx,
+                                      '@SpeciesDescription': species}]}}
+
+    def las(self, reporting):
+        """33 local authorities, the first ones carrying the given sites,
+        the rest listed with none, as the feed lists them."""
+        return reporting + [{'@LocalAuthorityName': f'LA{i}'} for i in range(33 - len(reporting))]
 
     def sites(self, n):
         return {'Sites': {'Site': [{'@SiteCode': str(i)} for i in range(n)]}}
 
-    def test_every_listed_borough_reporting_passes(self):
-        las = [self.la('A', 'Low', '3'), self.la('B', 'Low', '2')]
-        H.laqn_checks(las, [(3, 'A', 'x', 'Low'), (2, 'B', 'x', 'Low')], sites_doc=self.sites(2))
+    def test_a_whole_listing_passes(self):
+        H.laqn_checks(self.las([self.la('A', 'Low', '3'), self.la('B', 'Low', '2')]),
+                      sites_doc=self.sites(2))
 
-    def test_a_listed_borough_with_no_reading_and_a_tie_fail(self):
-        las = [self.la('A', 'Low'), self.la('B', 'No data')]
-        with self.assertRaisesRegex(Fail, 'reporting'):
-            H.laqn_checks(las, [(2, 'A', 'x', 'Low')], sites_doc=self.sites(2))
-        las = [self.la('A', 'Low'), self.la('B', 'Low')]
-        with self.assertRaisesRegex(Fail, 'tie'):
-            H.laqn_checks(las, [(2, 'A', 'x', 'Low'), (2, 'B', 'x', 'Low')], sites_doc=self.sites(2))
+    def test_not_33_authorities_or_too_few_open_sites_fail(self):
+        with self.assertRaisesRegex(Fail, 'not 33'):
+            H.laqn_checks([self.la('A', 'Low')], sites_doc=self.sites(1))
         with self.assertRaisesRegex(Fail, 'open sites'):
-            H.laqn_checks(las, [(3, 'A', 'x', 'Low')], sites_doc=self.sites(40))
+            H.laqn_checks(self.las([self.la('A', 'Low')]), sites_doc=self.sites(40))
+
+
+class LaqnCard(unittest.TestCase):
+    """The rebuilt card, 8 October 2026: sites and boroughs that are
+    REPORTING, and a highest reading named only when one site holds it."""
+    la = LaqnChecks.la
+    las = LaqnChecks.las
+
+    def harvest(self, reporting):
+        doc = {'HourlyAirQualityIndex': {'LocalAuthority': self.las(reporting)}}
+        with unittest.mock.patch.object(H, 'get_json', return_value=doc), \
+             unittest.mock.patch.object(H, 'laqn_checks'):
+            facts, err = H.harvest_laqn()
+        self.assertIsNone(err)
+        return {f['label']: f['value'] for f in facts}
+
+    def test_no_data_sites_are_not_reporting(self):
+        got = self.harvest([self.la('A', 'Moderate', '4', site='A - High St'),
+                            self.la('B', 'Low', '2'), self.la('C', 'No data', '0')])
+        self.assertEqual(got['Sites above “Low”'], '1 of 2')
+        self.assertEqual(got['Boroughs with a site reporting'], '2 of 33')
+        self.assertEqual(got['Highest reading: Nitrogen Dioxide at A - High St'],
+                         'index 4 (Moderate)')
+
+    def test_a_tie_names_no_site(self):
+        got = self.harvest([self.la('A', 'Low', '2'), self.la('B', 'Low', '2'),
+                            self.la('C', 'Low', '1')])
+        self.assertEqual(got['Highest reading'], 'index 2 (Low), at 2 sites')
+        self.assertFalse(any(k.startswith('Highest reading:') for k in got))
 
 
 class DcmsTable1Checks(unittest.TestCase):
