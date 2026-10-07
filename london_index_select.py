@@ -122,6 +122,14 @@ def build_pool(source=None):
             # the observation log so one that keeps failing is seen.
             facts, err = [], f'source check failed: {e}'
             _observe_source_check(key, str(e))
+        except (KeyError, IndexError, TypeError, ValueError, AttributeError) as e:
+            # A feed too malformed to check (a missing field, a value that
+            # will not parse) withholds its vein the same way, rather than
+            # stopping the whole run: the source checks read fields no card
+            # line ever did, so a change there must not cost every vein.
+            msg = f'unreadable feed ({type(e).__name__}: {e})'
+            facts, err = [], f'source check failed: {msg}'
+            _observe_source_check(key, msg)
         if err:
             errors[key] = err
             continue

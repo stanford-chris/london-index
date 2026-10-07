@@ -548,6 +548,21 @@ class SourceChecks(unittest.TestCase):
         self.assertEqual([f['vein'] for f in pool], ['good'])
         self.assertIn('one direction only', errors['bad'])
 
+    def test_a_malformed_feed_is_that_veins_error_not_a_crash(self):
+        import london_index_harvest as H
+        import london_index_select as Sel
+
+        def bad():
+            return int('—'), None
+
+        def good():
+            return [{'label': 'x', 'value': '1'}], None
+        with unittest.mock.patch.dict(H.HARVESTERS, {'bad': bad, 'good': good}, clear=True), \
+             unittest.mock.patch.object(Sel, '_observe_source_check', lambda *a: None):
+            pool, errors = Sel.build_pool()
+        self.assertEqual([f['vein'] for f in pool], ['good'])
+        self.assertIn('unreadable feed', errors['bad'])
+
     def test_reconcile_holds_its_tolerance(self):
         import london_index_harvest as H
         H.reconcile('same', 100, 100, 0)
