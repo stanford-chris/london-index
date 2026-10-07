@@ -61,11 +61,11 @@ class CentralFacts(unittest.TestCase):
         labels = [f['label'] for f in facts]
         self.assertEqual(labels[:3], ['Within a mile of central London',
                                       'Most common: Other theft', 'Change since June'])
-        self.assertEqual(facts[0]['value'], '3,497')
-        self.assertEqual(facts[2]['value'], '+3%')
+        self.assertEqual(facts[0]['value'], '2,697')   # anti-social behaviour left out
+        self.assertEqual(facts[2]['value'], '+4%')
         top = [f for f in facts if f['pair'] == 'central_top']
         self.assertEqual([f['label'] for f in top],
-                         ['Other theft', 'Violent crime', 'Anti-social behaviour', 'Shoplifting'])
+                         ['Other theft', 'Violent crime', 'Shoplifting', 'Burglary'])
         self.assertTrue(all(f['period'] == '2026-07' for f in facts))
         self.assertTrue(all(f['dateline_lead'] == H.CENTRAL_LEAD for f in top))
 
@@ -152,6 +152,12 @@ class StopSearchFacts(unittest.TestCase):
                           ('For drugs', '3'), ('For weapons', '5')])
         self.assertTrue(all(f['pair'] == 'stops_all' and f['period'] == '2026-07' for f in facts))
 
+    def test_weapons_counts_firearms_and_section_60(self):
+        rows = [{'object_of_search': o} for o in
+                ('Offensive weapons', 'Firearms', 'Anything to threaten or harm anyone', 'Controlled drugs')]
+        got = {f['label']: f['value'] for f in H.stop_search_facts(rows, '2026-07', 'u')}
+        self.assertEqual(got['For weapons'], '3')
+
 
 class HousePriceFacts(unittest.TestCase):
     LONDON = {'averagePrice': 553870, 'percentageAnnualChange': -2.5, 'percentageChange': 1.0,
@@ -217,10 +223,16 @@ class AnimalFacts(unittest.TestCase):
     def test_shapes(self):
         facts = H.animal_facts(self.rows(), '2026-07')
         self.assertEqual([(f['label'], f['value'], f['pair']) for f in facts],
-                         [('Animals rescued', '11', None), ('Most rescues: Newham', '7', None),
+                         [('Total', '11', None), ('Most: Newham', '7', None),
                           ('Cats', '5', 'animals_top'), ('Birds', '3', 'animals_top'),
                           ('Dogs', '2', 'animals_top'),
                           ('Notional cost to the brigade', '£6,500', None)])
+
+    def test_lower_case_folds_and_a_missing_cost_drops_the_line(self):
+        rows = self.rows() + [{'AnimalGroupParent': 'cat', 'Borough': 'BRENT', 'IncidentNotionalCost(£)': 'NULL'}]
+        got = {f['label']: f['value'] for f in H.animal_facts(rows, '2026-07')}
+        self.assertEqual(got['Cats'], '6')
+        self.assertNotIn('Notional cost to the brigade', got)
 
     def test_unknown_group_never_reaches_the_ranked_list(self):
         labels = [f['label'] for f in H.animal_facts(self.rows(), '2026-07') if f['pair']]
@@ -232,8 +244,8 @@ class AnimalFacts(unittest.TestCase):
         self.assertEqual(by_label['Cats'], '🐈')
         self.assertEqual(by_label['Birds'], '🐦')
         self.assertEqual(by_label['Dogs'], '🐕')
-        self.assertIsNone(by_label['Animals rescued'])
-        self.assertIsNone(by_label['Most rescues: Newham'])
+        self.assertIsNone(by_label['Total'])
+        self.assertIsNone(by_label['Most: Newham'])
         self.assertIsNone(by_label['Notional cost to the brigade'])
 
 
@@ -800,14 +812,14 @@ class BoroughMap(unittest.TestCase):
         # Under MAX_LINES=4: the ranked trio plus the unranked total, so both
         # sides of the rule (a ranked row carries the icon, the total does not)
         # are exercised in one compose() call.
-        ids = [by_label_all['Animals rescued']['id'], by_label_all['Cats']['id'],
+        ids = [by_label_all['Total']['id'], by_label_all['Cats']['id'],
                by_label_all['Birds']['id'], by_label_all['Dogs']['id']]
         c = C.compose({'opener': {'emoji': '🚒', 'text': 'T'}, 'ids': ids}, facts)
         by_label = {l['label']: l.get('emoji') for l in c['lines']}
         self.assertEqual(by_label['Cats'], '🐈')
         self.assertEqual(by_label['Birds'], '🐦')
         self.assertEqual(by_label['Dogs'], '🐕')
-        total_line = next(l for l in c['lines'] if l['label'] == 'Animals rescued')
+        total_line = next(l for l in c['lines'] if l['label'] == 'Total')
         self.assertNotIn('emoji', total_line)
 
 
@@ -991,9 +1003,13 @@ class DatastoreSeries(unittest.TestCase):
                 ['Jul-25', '2900000', '2500000', '31', ''], ['Jul-26', '2783502', '2359567', '31', '']]
         facts = H.congestion_facts(rows)
         self.assertEqual([(f['label'], f['value']) for f in facts],
-                         [('Vehicles seen in charging hours', '2,359,567'), ('Per charging day', '76,115'),
+                         [('Vehicles a charging day', '76,115'),
                           ('Charging days', '31'), ('Change on a year earlier', '−6%')])
         self.assertTrue(all(f['period'] == '2026-07' for f in facts))
+        # The change is per charging day: a 30-day month against a 31-day one.
+        rows[1][2:4] = ['2500000', '30']
+        got = {f['label']: f['value'] for f in H.congestion_facts(rows)}
+        self.assertEqual(got['Change on a year earlier'], '−9%')
 
     def test_strength(self):
         rows = [['Date', 'Police Officer Strength', 'Police Staff Strength', 'PCSO Strength'],
@@ -1014,7 +1030,7 @@ class DatastoreSeries(unittest.TestCase):
                 (2026, 8, 'August', 'Male', 'Adult', 'White', 'Other Offence', 'No', 5000)]
         facts = H.arrests_facts(rows)
         self.assertEqual([(f['label'], f['value']) for f in facts],
-                         [('Total', '6,100'), ('Most common offence: Assault', '900'),
+                         [('Total', '6,100'), ('Most common named offence: Assault', '900'),
                           ('Flagged as domestic abuse', '300'), ('Change on a year earlier', '+510%')])
         self.assertTrue(all(f['period'] == '2026-08' for f in facts))
 
@@ -1307,7 +1323,7 @@ class Events(unittest.TestCase):
                   'segments': {'Arts & Theatre': 372, 'Music': 127, 'Miscellaneous': 625, 'Sports': 4}}
         facts = H.events_facts(counts)
         self.assertEqual([(f['label'], f['value']) for f in facts],
-                         [('All events', '1,184'), ('Starting in the next 24 hours', '280'),
+                         [('All listings', '1,184'), ('Starting in the next 24 hours', '280'),
                           ('Theatre and arts', '372'), ('Music', '127'), ('Attractions and other', '625'),
                           ('Sport', '4'), ('Listed for the next 30 days', '5,123')])
         self.assertTrue(all(f['period'] is None and f['pair'] == 'events_all' and f['dateline_lead'] == H.TM_LEAD for f in facts))
@@ -1632,6 +1648,20 @@ class WestEndShows(unittest.TestCase):
             '<li><strong>The Woman in Black</strong>&nbsp;(1989 production, now closed) – 13,232 performances</li>',
             '<li><strong>Mamma Mia!</strong>&nbsp;(running since 1999) – Over 10,194 performances</li>']
 
+    def setUp(self):
+        # The fixture's list is January 2025; these tests read it as fresh.
+        # Its age is test_the_newest_cut_goes_when_the_list_is_stale's.
+        p = unittest.mock.patch.object(H, 'solt_age_months', return_value=0)
+        p.start()
+        self.addCleanup(p.stop)
+
+    def test_the_newest_cut_goes_when_the_list_is_stale(self):
+        parsed = H.parse_solt_shows(self.page())
+        with unittest.mock.patch.object(H, 'solt_age_months', return_value=21):
+            pairs = {f['pair'] for f in H.solt_show_facts(parsed)}
+        self.assertNotIn('shows_newest', pairs)
+        self.assertIn('shows_top', pairs)
+
     def page(self, rows=None, supplied='Information supplied to Society of London Theatre in January 2025',
              heading='The top 20 longest-running productions in West End history'):
         rows = self.ROWS if rows is None else rows
@@ -1855,10 +1885,18 @@ class CentralChecks(unittest.TestCase):
     def test_clean_month_passes(self):
         H.central_checks(self.recs(1000), '2026-08', 51.5, -0.13, poly=self.recs(998))
 
-    def test_asb_the_polygon_and_the_month_each_fail(self):
-        with self.assertRaisesRegex(Fail, 'anti-social'):
-            H.central_checks(self.recs(1000) + self.recs(1, 'anti-social-behaviour', first=5000), '2026-08', 51.5, -0.13,
-                             poly=self.recs(1001))
+    def test_asb_is_left_out_of_the_card(self):
+        H.central_checks(self.recs(1000) + self.recs(5, 'anti-social-behaviour', first=5000), '2026-08', 51.5, -0.13,
+                         poly=self.recs(1005))
+        facts = H.central_facts(self.recs(10) + self.recs(50, 'anti-social-behaviour', first=500),
+                                self.recs(8) + self.recs(9, 'anti-social-behaviour', first=900), '2026-08', 'u')
+        got = {f['label']: f['value'] for f in facts}
+        self.assertEqual(got['Within a mile of central London'], '10')
+        self.assertEqual(got['Most common: Burglary'], '10')
+        self.assertEqual(got['Change since July'], '+25%')
+        self.assertNotIn('Anti-social behaviour', got)
+
+    def test_the_polygon_and_the_month_each_fail(self):
         with self.assertRaisesRegex(Fail, 'polygon'):
             H.central_checks(self.recs(1000), '2026-08', 51.5, -0.13, poly=self.recs(900))
         with self.assertRaises(Fail):
@@ -2008,11 +2046,14 @@ class DcmsTable1Checks(unittest.TestCase):
 
 
 class StationUsageAndFootfallChecks(unittest.TestCase):
-    def test_a_station_shared_with_another_mode_fails(self):
+    def test_a_shared_station_needs_the_footnote(self):
         facts = [H.fact('1', 'Busiest: Waterloo', 's', 'u'), H.fact('2', 'Paddington', 's', 'u')]
         H.station_usage_checks(facts, {'Stratford'})
         with self.assertRaisesRegex(Fail, 'Paddington'):
             H.station_usage_checks(facts, {'Paddington'})
+        noted = [H.fact('2', 'Paddington', 's', 'u', context_note=H.SHARED_GATES_NOTE)]
+        H.station_usage_checks(noted, {'Paddington'})
+        self.assertLessEqual(len(H.SHARED_GATES_NOTE), 140)
 
     def footfall(self, latest_counts):
         dates = [f'202609{d:02d}' for d in range(20, 28)]
@@ -2063,9 +2104,6 @@ class StopSearchChecks(unittest.TestCase):
             H.stop_search_checks(self.recs(), '2026-08', no_location=[{}], dates=self.DATES)
         with self.assertRaisesRegex(Fail, 'without a location'):
             H.stop_search_checks(self.recs(), '2026-07', no_location=[], dates=self.DATES)
-        with self.assertRaisesRegex(Fail, 'For weapons'):
-            H.stop_search_checks(self.recs([{'location': {}, 'object_of_search': 'Firearms'}]), '2026-07',
-                                 no_location=[{}], dates=self.DATES)
 
 
 class HpiChecks(unittest.TestCase):
@@ -2102,10 +2140,10 @@ class LfbFileChecks(unittest.TestCase):
 
     def test_animals(self):
         H.animal_checks([self.animal(n='1'), self.animal('Unknown - Wild Animal', n='2')], '2026-07')
-        with self.assertRaisesRegex(Fail, 'cat'):
-            H.animal_checks([self.animal('cat')], '2026-07')
-        with self.assertRaisesRegex(Fail, 'numeric cost'):
-            H.animal_checks([self.animal(cost='NULL')], '2026-07')
+        # 'cat' folds into 'Cat', and a NULL cost drops the cost line instead.
+        H.animal_checks([self.animal('cat', n='3'), self.animal(cost='NULL', n='4')], '2026-07')
+        with self.assertRaisesRegex(Fail, 'Wombat'):
+            H.animal_checks([self.animal('wombat')], '2026-07')
         with self.assertRaisesRegex(Fail, 'twice'):
             H.animal_checks([self.animal(), self.animal()], '2026-07')
 
@@ -2182,8 +2220,6 @@ class DatastoreChecks(unittest.TestCase):
                 (2026, 8, 'August', 'M', 'A', 'W', 'Assault', 'No', 10),
                 (2026, 8, 'August', 'M', 'A', 'W', 'Other Offence', 'No', 9)]
         H.arrests_checks(rows)
-        with self.assertRaisesRegex(Fail, 'outnumbered'):
-            H.arrests_checks(rows[:3] + [(2026, 8, 'August', 'M', 'A', 'W', 'Other Offence', 'No', 11)])
         with self.assertRaisesRegex(Fail, 'repeats'):
             H.arrests_checks(rows + [rows[1]])
         with self.assertRaisesRegex(Fail, 'missing'):
@@ -2192,8 +2228,13 @@ class DatastoreChecks(unittest.TestCase):
     def test_reservoirs(self):
         head = ['date', 'month', 'year', 'lower_lee_group', 'lower_thames_group']
         H.reservoir_checks([head, ['30-Aug-26', 'Aug', '2026', '80', '70'], ['31-Aug-26', 'Aug', '2026', 'n/a', '70']])
+        H.reservoir_checks([head, ['01/06/2020', 'Jun', '2020', '80', '70']])   # the 2020-21 form reads
+        self.assertEqual(H._day_label('01/06/2020'), '2020-06-01')
         with self.assertRaisesRegex(Fail, 'does not read'):
-            H.reservoir_checks([head, ['01/06/2020', 'Jun', '2020', '80', '70']])
+            H.reservoir_checks([head, ['June 1st', 'Jun', '2020', '80', '70']])
+        with self.assertRaisesRegex(Fail, 'twice'):
+            H.reservoir_checks([head, ['01/06/2020', 'Jun', '2020', '80', '70'],
+                                ['01-Jun-20', 'Jun', '2020', '80', '70']])
         with self.assertRaisesRegex(Fail, 'twice'):
             H.reservoir_checks([head, ['30-Aug-26', 'Aug', '2026', '80', '70']] * 2)
 
@@ -2237,14 +2278,36 @@ class EventsAndListChecks(unittest.TestCase):
 
     def test_solt_list_age(self):
         now = datetime(2026, 10, 7, tzinfo=timezone.utc)
-        H.solt_checks({'period': '2026-01'}, now=now)
-        with self.assertRaisesRegex(Fail, '21 months'):
-            H.solt_checks({'period': '2025-01'}, now=now)
+        self.assertEqual(H.solt_age_months({'period': '2025-01'}, now=now), 21)
+        H.solt_checks({'period': '2025-01'}, now=now)
+        with self.assertRaisesRegex(Fail, 'future'):
+            H.solt_checks({'period': '2026-11'}, now=now)
 
     def test_cinema_region(self):
-        H.cinema_checks({'Population (million)': 8.9})
-        with self.assertRaisesRegex(Fail, 'Greater London'):
-            H.cinema_checks({'Population (million)': 13.6})
+        H.cinema_checks({'Population (million)': 13.6})
+        with self.assertRaisesRegex(Fail, 'wider TV region'):
+            H.cinema_checks({'Population (million)': 8.9})
+
+
+class MuseumsOutsideLondon(unittest.TestCase):
+    def test_only_groups_with_sites_outside_london_say_so(self):
+        years = ['2023-24', '2024-25']
+        iwm = H.museum_facts('Imperial War Museums', {'2024-25': 2239070}, years, {})
+        rmg = H.museum_facts('Royal Museums Greenwich', {'2024-25': 1500000}, years, {})
+        self.assertIn('outside London', iwm[0]['context_note'])
+        self.assertNotIn('outside London', rmg[0]['context_note'])
+        self.assertIn(('Imperial War Museums', 'Website visits'), H.SPOTLIGHT_SKIP)
+
+
+class MuseumPairsOutsideLondon(unittest.TestCase):
+    def test_a_pair_naming_a_group_carries_the_note_on_both_rows(self):
+        facts = [H.fact('1', 'Natural History Museum', 's', 'u', pair='museum_heat'),
+                 H.fact('2', 'Wallace Collection', 's', 'u', pair='museum_heat'),
+                 H.fact('3', 'Most visited: British Museum', 's', 'u', pair='museum_gap'),
+                 H.fact('4', 'Fewest: Sir John Soane’s Museum', 's', 'u', pair='museum_gap')]
+        H.mark_museum_groups(facts)
+        self.assertEqual({f['context_note'] for f in facts[:2]}, {H.MUSEUM_GROUPS_NOTE})
+        self.assertEqual({f['context_note'] for f in facts[2:]}, {None})
 
 
 if __name__ == '__main__':

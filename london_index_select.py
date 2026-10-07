@@ -386,20 +386,20 @@ FIXED_OPENERS = {
     ('rail_departures', 'rail_top'): {'emoji': '🚆', 'text': 'London’s departure boards'},
     ('rail_departures', 'rail_ops_top'): {'emoji': '🚆', 'text': 'Trains running late, by operator'},
     # The seven London Datastore series, 12 September 2026.
-    ('reservoirs', 'reservoir_all'): {'emoji': '💧', 'text': 'London’s reservoirs'},
+    ('reservoirs', 'reservoir_all'): {'emoji': '💧', 'text': 'Thames Water’s London reservoirs'},
     ('tfl_journeys', 'journeys_top'): {'emoji': '🚌', 'text': 'Journeys on TfL, by mode'},
     ('congestion_charge', 'ccz_all'): {'emoji': '🚗', 'text': 'The Congestion Charge zone'},
     ('police_strength', 'strength_all'): {'emoji': '🚓', 'text': 'Metropolitan Police staffing'},
-    ('arrests', 'arrests_all'): {'emoji': '🚓', 'text': 'Arrests by the Metropolitan Police'},
+    ('arrests', 'arrests_all'): {'emoji': '🚓', 'text': 'Metropolitan Police custody records'},
     ('unemployment', 'jobless_all'): {'emoji': '', 'text': 'Unemployment'},
-    ('lift_releases', 'lifts_all'): {'emoji': '🚒', 'text': 'People stuck in lifts'},
+    ('lift_releases', 'lifts_all'): {'emoji': '🚒', 'text': 'Lift rescues by the fire brigade'},
     ('lfb_incidents', 'lfb_all'): {'emoji': '🚒', 'text': 'The London Fire Brigade’s month'},
-    ('events', 'events_all'): {'emoji': '🎭', 'text': 'On sale in London'},
+    ('events', 'events_all'): {'emoji': '🎭', 'text': 'On Ticketmaster in London'},
     ('events', 'venues_top'): {'emoji': '🎭', 'text': 'Most performances, by venue'},
     # The two annual ticket-sales veins, 19 September 2026. No year in the
     # text: each shares one `period`, which _dateline() puts under the title.
     ('west_end', 'west_end_all'): {'emoji': '🎭', 'text': 'West End theatre'},
-    ('london_cinema', 'cinema_all'): {'emoji': '🎬', 'text': 'London’s cinemas'},
+    ('london_cinema', 'cinema_all'): {'emoji': '🎬', 'text': 'Cinemas in the London TV region'},
     ('west_end_shows', 'shows_top'): {'emoji': '🎭', 'text': 'Longest-running West End shows'},
     # The three further cuts of SOLT's list, the same evening. The closed
     # card's title carries "closed" so its rows need not; the year cuts say

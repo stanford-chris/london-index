@@ -1055,6 +1055,7 @@ def _category_name(cat):
     return cat.replace('-', ' ').capitalize()
 
 
+ASB = 'anti-social-behaviour'
 CENTRAL_LEAD = 'Within a mile of Trafalgar Square'
 CENTRAL_TOP_N = 4
 
@@ -1070,6 +1071,11 @@ def central_facts(records, prev_records, ym, url):
         the previous month (when that month is available)
       - "central_top": the CENTRAL_TOP_N most-reported categories, ranked,
         a whole card on its own."""
+    # data.police.uk's all-crime includes anti-social behaviour; the Met's
+    # own counts (the borough cards, also titled "Reported crime") leave it
+    # out, so this card does too: 527 of 4,160 in August 2026.
+    records = [r for r in records if r.get('category') != ASB]
+    prev_records = [r for r in prev_records or [] if r.get('category') != ASB]
     cats = {}
     for r in records:
         cats[r['category']] = cats.get(r['category'], 0) + 1
@@ -1134,12 +1140,8 @@ def central_checks(records, ym, lat, lng, poly=None):
     require(poly is not None, 'polygon search of the same mile could not be made')
     reconcile('central mile, point search against polygon', len(records), len(poly),
               CENTRAL_POLY_TOLERANCE)
-    # The card is "Reported crime"; data.police.uk's all-crime includes
-    # anti-social behaviour, which the Met's own counts (the borough cards)
-    # leave out: 527 of 4,160 in August 2026. Fails until the vein counts
-    # like with like (why it is held).
-    asb = sum(1 for r in records if r.get('category') == 'anti-social-behaviour')
-    require(asb == 0, f'{asb:,} anti-social behaviour records counted as reported crime')
+    # Anti-social behaviour is in both searches and is dropped afterwards by
+    # central_facts(), so the reconcile compares the whole answer.
 
 
 # Eight boroughs spanning the compass, each a real civic-building address -
@@ -2147,7 +2149,18 @@ def dcms_table(sheet):
 MUSEUM_LEAD = None
 # His wording, 12 September 2026.
 MUSEUM_NOTE = 'One of 13 London museums funded by the Department for Culture, Media and Sport'
-MUSEUM_NOTE_GROUP = MUSEUM_NOTE + '; all its sites counted'   # no full stop: footnotes here carry none
+# The four groups whose visits include sites outside London (the source-
+# check audit, 7 October 2026: the Science Museum Group's London site 2.64
+# million of its 4.0 million, IWM's three London sites 1.50 of 2.24 million).
+# Named on the card since 8 October 2026; until then the footnote said only
+# "all its sites counted", and Royal Museums Greenwich, all in London, got
+# the same line because its name has "Museums" in it.
+OUTSIDE_LONDON_GROUPS = {'Science Museum Group', 'Imperial War Museums', 'Tate Gallery Group',
+                         'Natural History Museum'}
+MUSEUM_NOTE_GROUP = MUSEUM_NOTE + '; visitors include its sites outside London'   # no full stop: footnotes here carry none
+MUSEUM_GROUPS_NOTE = 'Group figures include sites outside London'
+# IWM's website visits break in series (DCMS Note 29), so they are left off its card.
+SPOTLIGHT_SKIP = {('Imperial War Museums', 'Website visits')}
 DCMS_PAGE = ('https://www.gov.uk/government/statistics/'
              'dcms-sponsored-museums-and-galleries-annual-performance-indicators-202425')
 
@@ -2162,7 +2175,7 @@ def museum_facts(name, visitors, years, extras, url=DCMS_PAGE):
         raise ValueError(f'no published visitor figure for {name}')
     year = published[-1]
     opener = {'emoji': '🏛️', 'text': name}
-    note = MUSEUM_NOTE_GROUP if ('Group' in name or 'Museums' in name) else MUSEUM_NOTE
+    note = MUSEUM_NOTE_GROUP if name in OUTSIDE_LONDON_GROUPS else MUSEUM_NOTE
     mk = lambda v, label: fact(v, label, 'DCMS', url, period=year, pair='museum_all',
                                context_note=note, dateline_lead=MUSEUM_LEAD, fixed_opener=opener)
     facts = [mk(f'{int(visitors[year]):,}', 'Visitors')]
@@ -2190,10 +2203,23 @@ def harvest_museum_spotlight():
     year = [y for y in years if y in table[name]][-1]
     extras = {}
     for sheet, (label, fmt) in DCMS_SPOTLIGHT_TABLES.items():
+        if (name, label) in SPOTLIGHT_SKIP:
+            continue
         tb = dcms_table(sheet)
         if tb and name in tb[0] and year in tb[0][name]:
             extras[label] = fmt(tb[0][name][year])
     return museum_facts(name, table[name], years, extras), None
+
+
+def mark_museum_groups(facts):
+    """Every pair naming one of the four groups says its figures include
+    sites outside London; compose() takes the first note among the picks,
+    so the pair's other fact carries it too."""
+    for pair in {f['pair'] for f in facts}:
+        members = [f for f in facts if f['pair'] == pair]
+        if any(f['label'].split(': ', 1)[-1] in OUTSIDE_LONDON_GROUPS for f in members):
+            for f in members:
+                f['context_note'] = MUSEUM_GROUPS_NOTE
 
 
 def harvest_dcms_museums():
@@ -2255,9 +2281,9 @@ def harvest_dcms_museums():
              'DCMS', url, period=year_label, pair='museum_gap'),
         fact(f'{quietest[1]:,}', f'Fewest: {quietest[0]}',
              'DCMS', url, period=year_label, pair='museum_gap'),
-        fact(f'{sum(counts.values()):,}', 'All London DCMS museums',
-             'DCMS', url, period=year_label),
     ]
+    # No "All London DCMS museums" total since 8 October 2026: about 2.5
+    # million of the 37.3 million were at the groups' sites outside London.
     # Dead-heat: two of the curated London museums whose annual visitor
     # count happens to land on nearly the same figure, out of the whole
     # curated set rather than just the busiest/quietest extremes above.
@@ -2267,6 +2293,7 @@ def harvest_dcms_museums():
         for name in (name_a, name_b):
             facts.append(fact(f'{counts[name]:,}', name,
                                'DCMS', url, period=year_label, pair='museum_heat'))
+    mark_museum_groups(facts)
     if unpublished:
         facts[0]['note'] = (f'{len(unpublished)} of {len(LONDON_DCMS_MUSEUMS)} curated '
                              f'London museums had no published {year_label} figure: {unpublished}')
@@ -2427,9 +2454,12 @@ def harvest_station_usage():
     # sentence ("...so a r"), caught on the first real dry run. Chris's own
     # wording for this clause was 143 - one word ("the" before "numbers")
     # dropped to land at 139, the minimal trim rather than a rewrite.
-    context_note = (
-        f"TfL counts across {len(usage)} London Underground stations; entries and "
-        "exits are counted separately, so numbers are gate taps, in and out, combined")
+    # Rewritten 8 October 2026: the figure is TfL's annual ESTIMATE from a
+    # typical autumn week, not a counted year, and at the 35 stations whose
+    # other modes' rows read "---see LU---" (Paddington, Liverpool Street,
+    # Tottenham Court Road, Stratford...) the LU row carries those modes'
+    # taps too. Under MAX_FOOTNOTE_CHARS (128 of 140).
+    context_note = SHARED_GATES_NOTE
     busiest = max(usage.items(), key=lambda kv: kv[1])
     quietest = min(usage.items(), key=lambda kv: kv[1])
     facts = [
@@ -2462,13 +2492,18 @@ def harvest_station_usage():
     return facts, None
 
 
+SHARED_GATES_NOTE = ('TfL’s yearly estimate from a typical autumn week, gate taps in and out; '
+                     'where other lines share the gates, their taps are in too')
+
+
 def station_usage_checks(facts, shared):
-    """No station a card names may be one whose LU row also carries another
-    mode's taps. Fails on 7 October 2026 (Tottenham Court Road, Liverpool
-    Street, Paddington, Stratford among them): why the vein is held."""
-    named = {f['label'].split(': ', 1)[-1] for f in facts}
-    mixed = sorted(named & shared)
-    require(not mixed, f'stations whose LU count includes other modes: {mixed}')
+    """A card naming a station whose LU row also carries another mode's taps
+    must say so in its footnote (Tottenham Court Road, Liverpool Street,
+    Paddington and Stratford among them, 2025)."""
+    for f in facts:
+        if f['label'].split(': ', 1)[-1] in shared:
+            require('other lines share the gates' in (f.get('context_note') or ''),
+                    f'{f["label"]}: its count includes other modes and the footnote does not say so')
 
 
 def _daily_footfall_file():
@@ -2740,7 +2775,7 @@ def stop_search_facts(records, ym, url):
     arrests = sum(1 for r in records if (r.get('outcome') or '') == 'Arrest')
     nfa = sum(1 for r in records if (r.get('outcome') or '').lower().startswith('a no further action'))
     drugs = sum(1 for r in records if (r.get('object_of_search') or '') == 'Controlled drugs')
-    weapons = sum(1 for r in records if (r.get('object_of_search') or '') == 'Offensive weapons')
+    weapons = sum(1 for r in records if r.get('object_of_search') in WEAPON_OBJECTS)
     mk = lambda v, label: fact(f'{v:,}', label, 'data.police.uk', url, period=ym,
                                pair='stops_all', dateline_lead=STOPS_LEAD)
     return [mk(total, 'Searches'), mk(arrests, 'Ended in arrest'),
@@ -2748,9 +2783,10 @@ def stop_search_facts(records, ym, url):
             mk(weapons, 'For weapons')]
 
 
-# What "For weapons" would have to count beyond 'Offensive weapons': 39
-# firearms searches and 17 section 60 searches in July 2026.
-OTHER_WEAPON_OBJECTS = ('Firearms', 'Anything to threaten or harm anyone')
+# "For weapons" counts all three: in July 2026, 39 firearms searches and 17
+# section 60 searches ("Anything to threaten or harm anyone") beside the
+# offensive-weapons ones, which alone it counted until 8 October 2026.
+WEAPON_OBJECTS = ('Offensive weapons', 'Firearms', 'Anything to threaten or harm anyone')
 
 
 def stop_search_checks(records, ym, no_location=None, dates=None):
@@ -2770,8 +2806,6 @@ def stop_search_checks(records, ym, no_location=None, dates=None):
     unlocated = sum(1 for r in records if r.get('location') is None)
     require(unlocated == len(no_location),
             f'{ym}: {unlocated} searches without a location, stops-no-location lists {len(no_location)}')
-    other = sum(1 for r in records if r.get('object_of_search') in OTHER_WEAPON_OBJECTS)
-    require(other == 0, f'{ym}: {other} firearms or section 60 searches left out of "For weapons"')
 
 
 def harvest_stop_search():
@@ -3091,6 +3125,13 @@ ANIMAL_EMOJI = {
 }
 
 
+def _animal_group(r):
+    """The row's AnimalGroupParent with its case folded: July 2026 carried two
+    rows reading 'cat' beside 114 reading 'Cat'."""
+    k = str(r.get('AnimalGroupParent') or '').strip()
+    return k[:1].upper() + k[1:].lower() if k and not k.startswith('Unknown') else k
+
+
 def animal_facts(rows, ym, url=ANIMALS_PAGE):
     """`rows` are dicts for one month (keys as the file's header names).
     Shapes: the month's total and the borough with the most (unpaired), the
@@ -3099,7 +3140,10 @@ def animal_facts(rows, ym, url=ANIMALS_PAGE):
     mk = lambda v, label, pair=None, emoji=None: fact(v, label, ANIMALS_SOURCE, url, period=ym,
                                                       pair=pair, dateline_lead=ANIMALS_LEAD,
                                                       emoji=emoji)
-    facts = [mk(f'{len(rows):,}', 'Animals rescued')]
+    # "Total" under the second line "Callouts to animals trapped or in
+    # distress": incidents, not animals, since one can be several (was
+    # "Animals rescued" until 8 October 2026).
+    facts = [mk(f'{len(rows):,}', 'Total')]
     boroughs = {}
     kinds = {}
     cost = 0.0
@@ -3107,15 +3151,19 @@ def animal_facts(rows, ym, url=ANIMALS_PAGE):
         b = (r.get('Borough') or '').strip()
         if b:
             boroughs[b] = boroughs.get(b, 0) + 1
-        k = (r.get('AnimalGroupParent') or '').strip()
+        k = _animal_group(r)
         if k in ANIMAL_PLURALS:
             kinds[k] = kinds.get(k, 0) + 1
         c = r.get('IncidentNotionalCost(£)')
-        if isinstance(c, (int, float)):
+        if isinstance(c, (int, float)) and cost is not None:
             cost += c
+        else:
+            # A cost reading "NULL" (three in July 2026) leaves the month's
+            # total unknown, so the line is dropped rather than understated.
+            cost = None
     if boroughs:
         name, n = max(boroughs.items(), key=lambda kv: kv[1])
-        facts.append(mk(f'{n:,}', f'Most rescues: {name.title()}'))
+        facts.append(mk(f'{n:,}', f'Most: {name.title()}'))
     for k, n in sorted(kinds.items(), key=lambda kv: -kv[1])[:ANIMALS_TOP_N]:
         facts.append(mk(f'{n:,}', ANIMAL_PLURALS[k], 'animals_top', ANIMAL_EMOJI.get(k)))
     if cost:
@@ -3162,17 +3210,14 @@ def harvest_lfb_animals():
 
 
 def animal_checks(rows, ym):
-    """One month of the animal-rescue file. July 2026 fails two of these:
-    two rows read 'cat' (dropped from Cats, 114 shown of 116) and three
-    carry the string 'NULL' as cost (left out of the notional cost)."""
+    """One month of the animal-rescue file: no incident twice, and no group
+    the ranking would silently drop once its case is folded. A missing cost
+    drops the cost line in animal_facts() and is not a fault here."""
     inc = [r.get('IncidentNumber') for r in rows]
     require(len(set(inc)) == len(inc), f'animal rescues {ym}: an incident appears twice')
-    odd = sorted({str(r.get('AnimalGroupParent')) for r in rows
-                  if (r.get('AnimalGroupParent') or '').strip() not in ANIMAL_PLURALS
-                  and not str(r.get('AnimalGroupParent') or '').startswith('Unknown')})
+    odd = sorted({_animal_group(r) for r in rows
+                  if _animal_group(r) not in ANIMAL_PLURALS and not _animal_group(r).startswith('Unknown')})
     require(not odd, f'animal rescues {ym}: groups the ranking would drop: {odd}')
-    costless = sum(1 for r in rows if not isinstance(r.get('IncidentNotionalCost(£)'), (int, float)))
-    require(costless == 0, f'animal rescues {ym}: {costless} incident(s) with no numeric cost')
 
 
 
@@ -3707,8 +3752,12 @@ def _month_label(s):
 
 
 def _day_label(s):
-    """'31-Aug-26' -> '2026-08-31'."""
-    return datetime.strptime(s.strip(), '%d-%b-%y').strftime('%Y-%m-%d')
+    """'31-Aug-26' -> '2026-08-31'. The reservoir file also writes 122 rows,
+    1 June 2020 to 30 September 2021, as '01/06/2020'; all 122 agree day first
+    with the row's own month and year columns (8 October 2026)."""
+    s = s.strip()
+    fmt = '%d/%m/%Y' if '/' in s else '%d-%b-%y'
+    return datetime.strptime(s, fmt).strftime('%Y-%m-%d')
 
 
 def _num(s):
@@ -3762,11 +3811,9 @@ def reservoir_facts(rows, url=RESERVOIR_PAGE):
 
 
 def reservoir_checks(rows):
-    """Every data row's date reads as the file's own dd-Mon-yy, and no date
-    twice. Fails on 7 October 2026: 122 rows, 1 June 2020 to 30 September
-    2021, are dd/mm/yyyy and are silently dropped, which moves the 31 August
-    all-years average (why the vein is held). The 15 'n/a' and '---' levels
-    are not dates and are left out by design."""
+    """Every data row's date reads (dd-Mon-yy, or the 122 dd/mm/yyyy rows of
+    2020-21), and no date twice. The 15 'n/a' and '---' levels are not dates
+    and are left out by design."""
     seen, unread = set(), []
     for r in rows[1:]:
         try:
@@ -3879,7 +3926,7 @@ def harvest_tfl_journeys():
 
 # 3. Congestion Charge zone: vehicles seen in charging hours, monthly.
 CCZ_URL = 'https://data.london.gov.uk/download/2r88d/601a15a2-352c-46be-adae-e049556314a3/tfl-vehicles-c-charge-zone.csv'
-CCZ_PAGE = 'https://data.london.gov.uk/dataset/camera-captures-and-confirmed-vehicles-seen-congestion-charge-zone-month'
+CCZ_PAGE = 'https://data.london.gov.uk/dataset/2r88d'
 CCZ_NOTE = 'TfL camera counts of vehicles in the zone during charging hours'
 
 
@@ -3903,13 +3950,17 @@ def congestion_facts(rows, url=CCZ_PAGE):
     confirmed, days = months[ym]
     mk = lambda v, label: fact(v, label, f'{DATASTORE} (TfL Congestion Charge)', url, period=ym,
                                pair='ccz_all', context_note=CCZ_NOTE, map_zone='congestion_charge_zone')
-    facts = [mk(f'{confirmed:,.0f}', 'Vehicles seen in charging hours')]
-    if days:
-        facts.append(mk(f'{confirmed / days:,.0f}', 'Per charging day'))
-        facts.append(mk(f'{days:.0f}', 'Charging days'))
+    # The file's monthly figure sums each day's distinct vehicles, so a car
+    # seen on 20 days counts 20 times; only the per-day figure is a count of
+    # vehicles, and the card carries that alone (8 October 2026). The change
+    # is per charging day too, since months differ in charging days.
+    if not days:
+        raise ValueError(f'congestion charge {ym}: no charging days')
+    facts = [mk(f'{confirmed / days:,.0f}', 'Vehicles a charging day'),
+             mk(f'{days:.0f}', 'Charging days')]
     prev = months.get(_shift_month(ym, 12))
-    if prev:
-        change = _pct_change(confirmed, prev[0])
+    if prev and prev[1]:
+        change = _pct_change(confirmed / days, prev[0] / prev[1])
         if change is not None:
             facts.append(mk(change, 'Change on a year earlier'))
     return facts
@@ -3995,8 +4046,10 @@ def harvest_police_strength():
 # 5. Arrests by the Metropolitan Police, monthly, from the custody dashboard.
 ARRESTS_URL = ('https://data.london.gov.uk/download/2r7po/f8f/'
                'MPS%20Custody%20-%20Arrests%20-%202022%2001%20to%202026%2008.xlsx')
-ARRESTS_PAGE = 'https://data.london.gov.uk/dataset/mps-custody-arrests-disposals-strip-searches'
-ARRESTS_NOTE = 'Metropolitan Police custody records; the offence is the first recorded at arrest'
+# The short /dataset/<id> form: the long slug answered 404 by 7 October 2026.
+ARRESTS_PAGE = 'https://data.london.gov.uk/dataset/2r7po'
+ARRESTS_NOTE = ('Records, not people, other agencies’ detainees included; '
+               'the offence is the first recorded at arrest')
 
 
 def arrests_facts(rows, url=ARRESTS_PAGE):
@@ -4032,9 +4085,11 @@ def arrests_facts(rows, url=ARRESTS_PAGE):
     top = max(named.items(), key=lambda kv: kv[1])
     mk = lambda v, label: fact(v, label, f'{DATASTORE} (MPS custody data)', url, period=ym,
                                pair='arrests_all', context_note=ARRESTS_NOTE)
-    # "Total": the title is "Arrests by the Metropolitan Police", his call,
-    # 6 October 2026.
-    facts = [mk(f'{m["total"]:,}', 'Total'), mk(f'{top[1]:,}', f'Most common offence: {top[0]}'),
+    # "Total" under the title "Metropolitan Police custody records" (was
+    # "Arrests by...", 6 October 2026; renamed 8 October, since the file
+    # counts records, 449 of them immigration detainees in August 2026).
+    # "named": "Other Offence" (4,979) outnumbers Assault (2,068).
+    facts = [mk(f'{m["total"]:,}', 'Total'), mk(f'{top[1]:,}', f'Most common named offence: {top[0]}'),
              mk(f'{m["da"]:,}', 'Flagged as domestic abuse')]
     prev = months.get(_shift_month(ym, 12))
     if prev:
@@ -4047,10 +4102,7 @@ def arrests_facts(rows, url=ARRESTS_PAGE):
 def arrests_checks(rows):
     """The custody sheet (see london_index_provenance.py): every month from
     January 2022 present, no row's dimensions twice (17,941 rows, 0
-    duplicates, 7 October 2026), and the "Most common offence" line true:
-    the named offence it shows must outnumber the unnamed "Other Offence"
-    bucket. August 2026: Other Offence 4,979, Assault 2,068, so this fails
-    until the label changes (why the vein is held)."""
+    duplicates, 7 October 2026)."""
     header = [str(c).strip() for c in rows[0]]
     yi, mi, oi, ci = (header.index(n) for n in
                       ('Arrest Year', 'Arrest Month', 'First Arrest Offence', 'Arrest Count'))
@@ -4068,13 +4120,6 @@ def arrests_checks(rows):
         off = offences.setdefault(ym, {})
         off[str(r[oi]).strip()] = off.get(str(r[oi]).strip(), 0) + n
     _contiguous_months(yms, 'arrests')
-    latest = offences[max(yms)]
-    named = {k: v for k, v in latest.items() if not k.lower().startswith('other')}
-    other = sum(v for k, v in latest.items() if k.lower().startswith('other'))
-    if named:
-        top = max(named.items(), key=lambda kv: kv[1])
-        require(top[1] >= other, f'arrests {max(yms)}: "Most common offence: {top[0]}" ({top[1]:,}) '
-                f'is outnumbered by Other Offence ({other:,})')
 
 
 def harvest_arrests():
@@ -4182,7 +4227,7 @@ def harvest_unemployment():
 # 7. People freed from lifts by the fire brigade, monthly.
 LIFTS_URL = ('https://data.london.gov.uk/download/2g980/46561645-a73e-473e-a45c-868b8599a280/'
              'Shut%20in%20lifts%20incidents%20attended%20by%20LFB%20in%20last%2036%20months.xlsx')
-LIFTS_PAGE = 'https://data.london.gov.uk/dataset/shut-in-lift-releases-lift-entrapments-attended-by-lfb'
+LIFTS_PAGE = 'https://data.london.gov.uk/dataset/2g980'
 LIFTS_NOTE = 'What the London Fire Brigade calls “shut in lift” releases'
 LIFTS_LEAD = 'Freed by the London Fire Brigade'
 
@@ -4511,7 +4556,8 @@ def events_facts(counts, url=TM_PAGE):
     day behind TM_LEAD, without the time (clock=False)."""
     mk = lambda v, label: fact(f'{v:,}', label, TM_SOURCE, url, pair='events_all',
                                context_note=TM_NOTE, dateline_lead=TM_LEAD, clock=False)
-    facts = [mk(counts['week'], 'All events')]
+    # One seller's catalogue, not all of London's (8 October 2026).
+    facts = [mk(counts['week'], 'All listings')]
     if counts.get('day') is not None:
         facts.append(mk(counts['day'], 'Starting in the next 24 hours'))
     for seg, label in TM_SEGMENTS:
@@ -4755,10 +4801,12 @@ def _count_words(over, count):
     return f'{"over " if over else ""}{count:,}'
 
 
-def solt_show_facts(parsed, url=SOLT_SHOWS_PAGE):
+def solt_show_facts(parsed, url=SOLT_SHOWS_PAGE, now=None):
     """Four cuts of the productions list, one pair each (see the section
     comment). A year cut with fewer than TOP_RANKED_COUNT rows to rank,
-    or a row with no readable year, is left out rather than padded."""
+    or a row with no readable year, is left out rather than padded. The
+    newest cut is left out once the list is over SOLT_MAX_AGE_MONTHS old
+    (see solt_age_months)."""
     rows = parsed['rows']
     mk = lambda value, label, pair, note, lead=SOLT_SHOWS_LEAD: fact(
         value, label, SOLT_SHOWS_SOURCE, url, period=parsed['period'], pair=pair,
@@ -4779,7 +4827,7 @@ def solt_show_facts(parsed, url=SOLT_SHOWS_PAGE):
     dated = [(i, r, y) for i, r, y in dated if y is not None]
     running = [(i, r, y) for i, r, y in dated if 'closed' not in r[1]]
     newest = sorted(running, key=lambda t: (-t[2], t[0]))[:TOP_RANKED_COUNT]
-    if len(newest) == TOP_RANKED_COUNT:
+    if len(newest) == TOP_RANKED_COUNT and solt_age_months(parsed, now) <= SOLT_MAX_AGE_MONTHS:
         for _i, (title, status, over, count), year in newest:
             facts.append(mk(str(year), f'“{title}”, {_count_words(over, count)}',
                             'shows_newest', SOLT_SHOWS_NOTE, SOLT_NEWEST_LEAD))
@@ -4815,14 +4863,20 @@ def harvest_west_end_shows():
 SOLT_MAX_AGE_MONTHS = 12
 
 
-def solt_checks(parsed, now=None):
-    """The list's own "supplied in" month is within SOLT_MAX_AGE_MONTHS.
-    Fails on 7 October 2026 (January 2025, 21 months): why the vein is held."""
+def solt_age_months(parsed, now=None):
+    """Months since the list's own "supplied in" month. Over
+    SOLT_MAX_AGE_MONTHS, the newest-openings cut is dropped (8 October 2026):
+    a show opened since is missing from it, while the closed counts, the
+    top four (far ahead of the 20th) and the oldest openings still hold, and
+    the footnote names the list's month as the latest data."""
     now = now or datetime.now(timezone.utc)
     y, m = (int(x) for x in parsed['period'].split('-'))
-    age = (now.year * 12 + now.month) - (y * 12 + m)
-    require(age <= SOLT_MAX_AGE_MONTHS,
-            f'SOLT list supplied {parsed["period"]}, {age} months ago (limit {SOLT_MAX_AGE_MONTHS})')
+    return (now.year * 12 + now.month) - (y * 12 + m)
+
+
+def solt_checks(parsed, now=None):
+    """The list's month is not in the future (a misread date)."""
+    require(solt_age_months(parsed, now) >= 0, f'SOLT list supplied {parsed["period"]}, in the future')
 
 
 def harvest_west_end():
@@ -5009,20 +5063,20 @@ def harvest_london_cinema(cache_path=BFI_CACHE, fetch=_bfi_fetch_row, now=None):
     return cinema_facts(cache['row'], cache['year']), None
 
 
-# Greater London's population as the ONS counts it, the area "London's
-# cinemas" names: 8.9 million in the same yearbook's Table 2. The row read
-# is ITV's London region, 13.6 million.
+# Greater London's population as the ONS counts it: 8.9 million in the same
+# yearbook's Table 2. The row read is ITV's London region, 13.6 million, and
+# since 8 October 2026 the card says so in its title ("Cinemas in the London
+# TV region") as well as its footnote; admissions are published only by
+# television region, so the card stays on that region rather than mixing two.
 GREATER_LONDON_MILLIONS = (8, 10)
 
 
 def cinema_checks(row):
-    """The row counts Greater London, not a wider region. Fails on
-    7 October 2026 (Table 1's London is 13.6 million people): why the vein
-    is held."""
+    """The footnote's claim holds: the row is a region wider than Greater
+    London, not Greater London itself or a smaller area."""
     pop = row.get('Population (million)')
-    lo, hi = GREATER_LONDON_MILLIONS
-    require(pop is not None and lo <= pop <= hi,
-            f'BFI row covers {pop} million people, not Greater London')
+    require(pop is not None and pop > GREATER_LONDON_MILLIONS[1],
+            f'BFI row covers {pop} million people, not the wider TV region the card names')
 
 
 HARVESTERS = {

@@ -65,13 +65,11 @@ PROVENANCE = {
                            'against 74.5 million annualised (measured by the audit, 7 October 2026).',
         'complete_fetch': 'One sheet, 269 LU rows, names unique after cleaning; the S3 listing must say '
                           'IsTruncated false.',
-        'labels': 'Overstated (held): “Busiest Tube stations” includes Elizabeth line, DLR and Overground '
-                  'taps at shared stations, and an annualised estimate reads as a counted total.',
+        'labels': 'Fixed 8 October 2026, held for his look: the footnote says “TfL’s yearly estimate from a typical autumn week, gate taps in and out; where other lines share the gates, their taps are in too”. The title “Busiest Tube stations” stands.',
         'verified': '2026-10-07',
         'checks': [
             {'kind': 'SHAPE', 'when': 'build',
-             'what': 'No station a card names has another mode’s row reading “---see LU---”; fails on '
-                     '7 October 2026 (Tottenham Court Road on the card), the fault the vein is held for.'},
+             'what': 'A card naming a station whose LU row also carries another mode’s taps must carry the shared-gates footnote.'},
             {'kind': 'SHAPE', 'when': 'build',
              'what': 'The S3 listings that find the file are complete (IsTruncated false).'},
             {'kind': 'RECONCILE', 'when': 'audit',
@@ -177,8 +175,7 @@ PROVENANCE = {
                            '4,160 (0.14%), every polygon id among the point search’s, 7 October 2026.',
         'complete_fetch': 'Under the API’s 10,000-record cap; no duplicate id; every record for the '
                           'month asked; farthest record 1,611 m from the centre.',
-        'labels': 'Held: “Reported crime” includes anti-social behaviour, which the Met’s own borough '
-                  'counts under the same title leave out.',
+        'labels': 'Fixed 8 October 2026, held for his look: anti-social behaviour is left out of the card, so “Reported crime” counts what the Met’s borough counts do.',
         'verified': '2026-10-07',
         'checks': [
             {'kind': 'RECONCILE', 'when': 'build',
@@ -187,8 +184,7 @@ PROVENANCE = {
             {'kind': 'SHAPE', 'when': 'build',
              'what': 'Fewer than 10,000 records, no duplicate id, every record’s month the month asked.'},
             {'kind': 'SHAPE', 'when': 'build',
-             'what': 'No anti-social behaviour record in a “Reported crime” total; fails on 7 October 2026 '
-                     '(527), the fault the vein is held for.'},
+             'what': 'Anti-social behaviour is dropped by central_facts() after the point-against-polygon reconcile, which compares the whole answer.'},
         ],
     },
     'police_boroughs': {
@@ -288,17 +284,14 @@ PROVENANCE = {
                            'thousand); ALVA’s 2025 site table puts about 2.5 million of the 37.3 million '
                            'outside London (audit, 7 October 2026).',
         'complete_fetch': 'One table; 18 museum rows and a Total; all 13 London rows published for 2024/25.',
-        'labels': 'Held: “All London DCMS museums” includes about 2.5 million visits outside London. '
-                  '“Most visited” and “Fewest” are unaffected.',
+        'labels': 'Fixed 8 October 2026, held for his look: the “All London DCMS museums” total is gone; a gap or near-tie pair naming one of the four groups with sites outside London carries the footnote “Group figures include sites outside London”.',
         'verified': '2026-10-07',
         'checks': [
             {'kind': 'RECONCILE', 'when': 'build',
              'what': 'The newest year’s museum rows sum to the Total row within 500 (DCMS rounds the '
                      'Total to the thousand; 224 for 2024/25, 490 at most over twelve years).'},
             {'kind': 'SHAPE', 'when': 'build',
-             'what': 'Table 1’s rows are exactly the 18 known museums and the Total, so a new, renamed '
-                     'or merged row fails. Passes on 7 October 2026: no figure in this table can show '
-                     'the non-London sites the vein is held for.'},
+             'what': 'Table 1’s rows are exactly the 18 known museums and the Total, so a new, renamed or merged row fails.'},
             {'kind': 'RECONCILE', 'when': 'audit',
              'what': 'Each group’s London sites against ALVA’s annual site table (calendar year, so '
                      'approximate): Science Museum 2.64 million of the group’s 4.0 million.'},
@@ -314,16 +307,14 @@ PROVENANCE = {
                            'fetched (the Home Office’s by-force table is the candidate).',
         'complete_fetch': 'One answer; the month must be listed for the Met in crimes-street-dates (August '
                           'and March 2026 are not, so the vein falls back to July).',
-        'labels': 'Held: “For weapons” counts “Offensive weapons” only and leaves out 39 firearms and 17 '
-                  'section 60 searches (July 2026).',
+        'labels': 'Fixed 8 October 2026, held for his look: “For weapons” counts offensive weapons, firearms and section 60 searches (“Anything to threaten or harm anyone”).',
         'verified': '2026-10-07',
         'checks': [
             {'kind': 'SHAPE', 'when': 'build',
              'what': 'Records without a location equal the stops-no-location list exactly (39 = 39), and '
                      'crimes-street-dates lists the Met as published for the month.'},
             {'kind': 'SHAPE', 'when': 'build',
-             'what': 'No firearms or section 60 search outside “For weapons”; fails on 7 October 2026 '
-                     '(56), the fault the vein is held for.'},
+             'what': '“For weapons” counts all three weapon objects of search (WEAPON_OBJECTS).'},
             {'kind': 'RECONCILE', 'when': 'audit',
              'what': 'An April-to-March sum against the Home Office’s stop and search by force table; '
                      'not yet measured.'},
@@ -391,14 +382,11 @@ PROVENANCE = {
         'checked_against': 'The LFB master incident file (em8xy), SpecialServiceType “Animal assistance '
                            'incidents”: 213 = 213 for July 2026, 167 = 167 for June (audit, 7 October 2026).',
         'complete_fetch': 'One sheet; 213 incidents for July 2026, none twice, last call 31 July.',
-        'labels': 'Held: “Animals rescued” counts callouts; two rows read “cat” and are dropped from Cats '
-                  '(114 shown of 116); three costs read “NULL” and are left out of the notional cost.',
+        'labels': 'Fixed 8 October 2026, held for his look: “Total” for “Animals rescued” (the second line says callouts), “Most: Lambeth” for “Most rescues: Lambeth”; “cat” folds into Cats; a month with any “NULL” cost drops the notional cost line rather than understating it.',
         'verified': '2026-10-07',
         'checks': [
             {'kind': 'SHAPE', 'when': 'build',
-             'what': 'Every animal group is one the ranking names or an “Unknown” group, every incident '
-                     'has a numeric cost, and no incident repeats; fails on 7 October 2026 (“cat”, and '
-                     'three “NULL” costs), faults the vein is held for.'},
+             'what': 'No incident repeats, and every animal group, its case folded, is one the ranking names or an “Unknown” group.'},
             {'kind': 'RECONCILE', 'when': 'audit',
              'what': 'The month’s incident count equals the master file’s animal assistance count exactly '
                      '(213 = 213); the master file is 81 MB.'},
@@ -449,13 +437,11 @@ PROVENANCE = {
                            'Environment Agency’s monthly water situation report (PDF) is a manual option.',
         'complete_fetch': '13,757 rows to 31 August 2026; 122 rows (1 June 2020 to 30 September 2021) are '
                           'dd/mm/yyyy and do not parse; 15 levels read “n/a” or “---”.',
-        'labels': 'Held: the dropped rows move the all-years average for 31 August (80.05 to 80.21); the '
-                  'title “London’s reservoirs” covers two Thames Water groups (the footnote names them).',
+        'labels': 'Fixed 8 October 2026, held for his look: the 122 dd/mm/yyyy rows of 2020-21 now read (all 122 agree day first with their month and year columns), and the title is “Thames Water’s London reservoirs”.',
         'verified': '2026-10-07',
         'checks': [
             {'kind': 'SHAPE', 'when': 'build',
-             'what': 'Every data row’s date reads as dd-Mon-yy and no date repeats; fails on 7 October '
-                     '2026 (122 rows), the fault the vein is held for.'},
+             'what': 'Every data row’s date reads (dd-Mon-yy, or dd/mm/yyyy for 2020-21) and no date repeats.'},
             {'kind': 'RECONCILE', 'when': 'none',
              'what': 'No independent machine-readable figure; the Environment Agency’s monthly PDF is the '
                      'only other publisher.'},
@@ -487,15 +473,11 @@ PROVENANCE = {
                            'confirmed vehicles are at most the camera captures in 116 of 117 months; May '
                            '2026 (2,784,653 confirmed against 2,564,414 captures) is not.',
         'complete_fetch': 'One CSV, 193 lines, July 2010 to July 2026.',
-        'labels': 'Held: “Vehicles seen in charging hours” counts vehicle-days. The page link '
-                  '(CCZ_PAGE) answers 404; the dataset is at /dataset/2r88d.',
+        'labels': 'Fixed 8 October 2026, held for his look: the card carries vehicles a charging day (distinct vehicles) and charging days, the change on a year earlier per charging day; the summed vehicle-days figure is gone. Page link now /dataset/2r88d.',
         'verified': '2026-10-07',
         'checks': [
             {'kind': 'SHAPE', 'when': 'build',
-             'what': 'For the months the card reads (the newest and a year before), confirmed vehicles are '
-                     'no more than camera captures and charging days no more than the month’s days; passes '
-                     'for July 2026 and July 2025, would fail for May 2026. No figure here shows the '
-                     'vehicle-days fault the vein is held for.'},
+             'what': 'For the months the card reads (the newest and a year before), confirmed vehicles are no more than camera captures and charging days no more than the month’s days; would fail for May 2026.'},
             {'kind': 'RECONCILE', 'when': 'none',
              'what': 'No independent count of vehicles in the Congestion Charge zone is published.'},
         ],
@@ -530,16 +512,13 @@ PROVENANCE = {
                            '(×1.231); the scopes differ, so not a tight reconcile (audit, 7 October 2026).',
         'complete_fetch': '17,941 rows, January 2022 to August 2026, every month present, no repeated '
                           'dimensions.',
-        'labels': 'Held: “Most common offence: Assault” (2,068) is outnumbered by “Other Offence” (4,979); '
-                  '“Arrests by the Metropolitan Police” counts custody records. The page link '
-                  '(ARRESTS_PAGE) answers 404; the dataset is at /dataset/2r7po.',
+        'labels': 'Fixed 8 October 2026, held for his look: title “Metropolitan Police custody records”, “Most common named offence”, footnote “Records, not people, other agencies’ detainees included”. Page link now /dataset/2r7po.',
         'verified': '2026-10-07',
         'checks': [
             {'kind': 'SHAPE', 'when': 'build',
              'what': 'Every month from January 2022 present and no row repeating its dimensions.'},
             {'kind': 'SHAPE', 'when': 'build',
-             'what': 'The named offence the card calls most common outnumbers “Other Offence”; fails on '
-                     '7 October 2026 (2,068 against 4,979), the fault the vein is held for.'},
+             'what': 'The card names the most common NAMED offence, so “Other Offence” (4,979 in August 2026) cannot outrank it.'},
             {'kind': 'RECONCILE', 'when': 'audit',
              'what': 'The financial year’s total over the Home Office’s persons arrested for the Met '
                      '(×1.231 then ×1.291); watched for a jump, not held to a tolerance.'},
@@ -571,15 +550,11 @@ PROVENANCE = {
                            'against 816 for July 2026 (the lift file a strict subset, −1.3%); 0 to −4 a month '
                            'January 2024 to June 2026 (audit, 7 October 2026).',
         'complete_fetch': '20,615 incidents, August 2023 to July 2026, none twice; last call 31 July.',
-        'labels': 'Held: the title “People stuck in lifts” overstates (incidents, LFB only); the rows '
-                  '“Callouts” and “Freed by the London Fire Brigade” are true. The page link (LIFTS_PAGE) '
-                  'answers 404; the dataset is at /dataset/2g980.',
+        'labels': 'Fixed 8 October 2026, held for his look: title “Lift rescues by the fire brigade”; rows “Callouts” and the dateline “Freed by the London Fire Brigade” unchanged. Page link now /dataset/2g980.',
         'verified': '2026-10-07',
         'checks': [
             {'kind': 'SHAPE', 'when': 'build',
-             'what': 'No incident twice, no month missing, and the newest month’s last call on its last '
-                     'day (31 July 2026, 23:44). Passes: no figure here shows the title fault the vein is '
-                     'held for.'},
+             'what': 'No incident twice, no month missing, and the newest month’s last call on its last day.'},
             {'kind': 'RECONCILE', 'when': 'audit',
              'what': 'The month’s count against the master file’s “Lift Release” count: no more than it '
                      'and within 2% (1.3% measured); the master file is 81 MB.'},
@@ -615,13 +590,11 @@ PROVENANCE = {
                            'listings pulled, 1,270 unique, total 1,270, every segment’s listings equal to '
                            'its total, 7 October 2026.',
         'complete_fetch': 'Per-segment paging, 627 at most against the API’s 1,000-item cap.',
-        'labels': 'Held: “On sale in London” and “All events” read as citywide for one seller’s catalogue.',
+        'labels': 'Fixed 8 October 2026, held for his look: title “On Ticketmaster in London”, row “All listings” for “All events”; the dateline already says “Ticketmaster listings”.',
         'verified': '2026-10-07',
         'checks': [
             {'kind': 'SHAPE', 'when': 'build',
-             'what': 'Every page pulled; listings equal the seven-day total exactly with no id twice; each '
-                     'segment’s listings equal its total; 24 hours ≤ 7 days ≤ 30 days. Passes: no figure '
-                     'here shows the single-seller scope the vein is held for.'},
+             'what': 'Every page pulled; listings equal the seven-day total exactly with no id twice; each segment’s listings equal its total; 24 hours ≤ 7 days ≤ 30 days.'},
             {'kind': 'RECONCILE', 'when': 'none',
              'what': 'No independent count of what is on in London exists.'},
         ],
@@ -635,8 +608,7 @@ PROVENANCE = {
                            'Churchill War Rooms and HMS Belfast 1,496,411 against IWM’s 2,239,070 (financial '
                            'against calendar year, approximate; audit, 7 October 2026).',
         'complete_fetch': 'As dcms_museums.',
-        'labels': 'Held: a group card includes sites outside London and the footnote does not say so; '
-                  'IWM’s website visits break in series (Note 29).',
+        'labels': 'Fixed 8 October 2026, held for his look: the footnote “visitors include its sites outside London” goes on the four groups that have them (Science Museum Group, IWM, Tate, Natural History Museum) and no longer on Royal Museums Greenwich; IWM’s website visits are left off its card (break in series, Note 29).',
         'verified': '2026-10-07',
         'checks': [
             {'kind': 'RECONCILE', 'when': 'build',
@@ -674,13 +646,11 @@ PROVENANCE = {
                            '749 screens against 1,031, 144 sites against 199, 15.8% against 21.7% (audit, '
                            '7 October 2026). Admissions are published only by television region.',
         'complete_fetch': 'One sheet; its 14 regions sum to its total (4,749 screens, 993 sites).',
-        'labels': 'Held: “London’s cinemas”, “Screens” and “Cinemas” are the television region, 38% more '
-                  'screens than Greater London.',
+        'labels': 'Fixed 8 October 2026, held for his look: title “Cinemas in the London TV region”; the footnote names ITV’s London region and its population. Admissions exist only by TV region, so the card stays on that region rather than mixing it with Table 2’s Greater London.',
         'verified': '2026-10-07',
         'checks': [
             {'kind': 'SHAPE', 'when': 'build',
-             'what': 'The row read covers Greater London (8 to 10 million people); fails on 7 October 2026 '
-                     '(13.6 million), the fault the vein is held for.'},
+             'what': 'The row covers more people than Greater London (over 10 million), the region the title and footnote name.'},
             {'kind': 'RECONCILE', 'when': 'audit',
              'what': 'Table 1’s total screens and sites equal Table 2’s exactly (4,749 and 993); needs the '
                      'exhibition file, read weekly.'},
@@ -696,13 +666,11 @@ PROVENANCE = {
                            '“The Play That Goes Wrong” (4,001 or more) likely in the 20 now (audit, '
                            '7 October 2026).',
         'complete_fetch': '20 rows, counts falling rank by rank, the “supplied in” date found.',
-        'labels': 'Held: membership and rank are 21 months old, so “Newest of the West End’s longest runs” '
-                  'is likely wrong today; the footnote covers the counts, not the list.',
+        'labels': 'Fixed 8 October 2026, held for his look: while the list is over 12 months old the “Newest of the West End’s longest runs” cut is dropped; the top four, the closed and the oldest cuts still hold, and the footnote names January 2025 as the latest data.',
         'verified': '2026-10-07',
         'checks': [
             {'kind': 'SHAPE', 'when': 'build',
-             'what': 'The list was supplied within 12 months; fails on 7 October 2026 (January 2025, '
-                     '21 months), the fault the vein is held for.'},
+             'what': 'The list’s supplied-in month is not in the future; over 12 months old, the newest cut is dropped.'},
             {'kind': 'RECONCILE', 'when': 'audit',
              'what': 'Closed shows’ counts equal Wikipedia’s list exactly, Thriller Live excepted with both '
                      'numbers (11 of 12 identical).'},
