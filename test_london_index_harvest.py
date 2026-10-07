@@ -936,8 +936,9 @@ class RiverLevelsCard(unittest.TestCase):
         facts, err = self.run_card([0, 0, 0, 11, 0, 0], [53, 13, 1, -1, 6, 40])
         self.assertIsNone(err)
         got = {f['label']: f['value'] for f in facts}
-        self.assertEqual(got['Fullest: Thames at Kingston'], '53% of its typical range')
-        self.assertEqual(got['Driest: Ravensbourne at Catford'], '1% of its typical range')
+        self.assertEqual(got['Fullest: Thames at Kingston'], '53%')
+        self.assertEqual(got['Driest: Ravensbourne at Catford'], '1%')
+        self.assertEqual(facts[0]['dateline_lead'], 'Position in typical range')
         self.assertNotIn('Roding', ' '.join(got))
         self.assertIn('5 of the 6', facts[0]['context_note'])
         self.assertIn('1 had not read', facts[0]['context_note'])

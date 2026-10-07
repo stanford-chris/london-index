@@ -913,6 +913,7 @@ def harvest_river_gauge():
 
 RIVERS_MIN_FRESH = 4      # a ranking of fewer gauges is not "fullest" of much
 RIVERS_OPENER = {'emoji': '🌊', 'text': 'London river gauges'}
+RIVERS_LEAD = 'Position in typical range'
 
 
 def harvest_river_levels():
@@ -945,15 +946,18 @@ def harvest_river_levels():
 
     def _val(pct):
         # Position in range alone: the stage in metres is a height on the
-        # gauge, not water depth, and ranks nothing across rivers.
+        # gauge, not water depth, and ranks nothing across rivers. Bare
+        # percentages, the measure said once on the second line, his call
+        # on 8 October 2026.
         if pct < 0:
-            return 'below its typical range'
+            return 'below range'
         if pct > 100:
-            return 'above its typical range'
-        return f'{pct:.0f}% of its typical range'
+            return 'above range'
+        return f'{pct:.0f}%'
 
     mk = lambda r, label, pair: fact(_val(r[4]), label, 'Environment Agency', url,
                                      pair=pair, context_note=note,
+                                     dateline_lead=RIVERS_LEAD,
                                      fixed_opener=RIVERS_OPENER, dateline_text=when_text)
     highest = max(used, key=lambda r: r[4])
     lowest = min(used, key=lambda r: r[4])
