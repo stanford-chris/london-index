@@ -553,8 +553,14 @@ class HeldVeins(unittest.TestCase):
     def test_the_live_hold_is_the_one_he_asked_for(self):
         # Pins the current hold; change this test as each vein is released.
         import london_index_select as Sel
-        self.assertEqual(len(Sel.HELD_VEINS), 15)
-        self.assertFalse({'laqn', 'river_levels', 'river_gauge', 'daily_footfall'} & Sel.HELD_VEINS)
+        self.assertEqual(len(Sel.HELD_VEINS), 13)
+        self.assertFalse({'laqn', 'river_levels', 'river_gauge', 'daily_footfall',
+                          'rail_departures', 'road_works'} & Sel.HELD_VEINS)
+
+    def test_both_rail_cards_carry_one_title(self):
+        import london_index_select as Sel
+        self.assertEqual(Sel.FIXED_OPENERS[('rail_departures', 'rail_top')],
+                         Sel.FIXED_OPENERS[('rail_departures', 'rail_all')])
 
     def test_a_held_vein_is_not_harvested_unless_asked_for(self):
         import london_index_harvest as H

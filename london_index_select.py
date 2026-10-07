@@ -101,7 +101,7 @@ def _observe_source_check(key, text):
 #   stop_search: "for weapons" leaves out firearms and section 60
 #   reservoirs: Thames Water's two groups as "London's reservoirs"; 122 rows
 #     in another date format silently dropped
-HELD_VEINS = {'station_usage', 'police', 'rail_departures', 'road_works', 'dcms_museums',
+HELD_VEINS = {'station_usage', 'police', 'dcms_museums',
               'museum_spotlight', 'congestion_charge', 'events', 'london_cinema',
               'arrests', 'west_end_shows', 'lfb_animals', 'lift_releases',
               'stop_search', 'reservoirs'}
@@ -381,7 +381,9 @@ FIXED_OPENERS = {
     ('lfb_animals', 'animals_top'): {'emoji': '🚒', 'text': 'Animal rescues by the fire brigade'},
     ('flood', 'flood_gap'): {'emoji': '🌊', 'text': 'Flood warnings and alerts'},
     ('rail_departures', 'rail_all'): {'emoji': '🚆', 'text': 'London’s departure boards'},
-    ('rail_departures', 'rail_top'): {'emoji': '🚆', 'text': 'Busiest London train stations'},
+    # One title for both rail shapes, his call 8 October 2026: "Busiest" read as
+    # passengers over a count of departures on the boards.
+    ('rail_departures', 'rail_top'): {'emoji': '🚆', 'text': 'London’s departure boards'},
     ('rail_departures', 'rail_ops_top'): {'emoji': '🚆', 'text': 'Trains running late, by operator'},
     # The seven London Datastore series, 12 September 2026.
     ('reservoirs', 'reservoir_all'): {'emoji': '💧', 'text': 'London’s reservoirs'},

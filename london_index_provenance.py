@@ -372,7 +372,7 @@ PROVENANCE = {
         'checked_against': 'None available: no independent count of London street works. TfL’s /Road '
                            'corridor list (24) is used for the shape checks.',
         'complete_fetch': 'One unpaged list, 115 unique ids.',
-        'labels': 'Relabelled 8 October 2026 (his call, still held for his look): second line “TfL’s list '
+        'labels': 'Relabelled and released 8 October 2026 (his call): second line “TfL’s list '
                   'of current disruptions”, footnote “on its red routes and on borough roads; not every '
                   'roadwork in London”, and “Roadworks” for what was “Planned roadworks”.',
         'verified': '2026-10-08',
@@ -414,8 +414,8 @@ PROVENANCE = {
                            'distinct trains cannot be counted exactly. Measured 7 October 2026, 13:30 BST: '
                            '35 services on one board started at another of the 13.',
         'complete_fetch': 'Thirteen boards, each under numRows (81 at most).',
-        'labels': 'Relabelled 8 October 2026 (his call, still held for his look): title “London’s '
-                  'departure boards”, the total “Departures on the boards”, the footnote naming National '
+        'labels': 'Relabelled and released 8 October 2026 (his call): title “London’s '
+                  'departure boards” on both rail cards, the total “Departures on the boards”, the footnote naming National '
                   'Rail and the Elizabeth line and the double count.',
         'verified': '2026-10-08',
         'checks': [
