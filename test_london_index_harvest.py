@@ -1974,6 +1974,11 @@ class LaqnCard(unittest.TestCase):
         self.assertEqual(got['Boroughs with a site reporting'], '2 of 33')
         self.assertEqual(got['Highest reading: Nitrogen Dioxide at A - High St'],
                          'index 4 (Moderate)')
+        doc = {'HourlyAirQualityIndex': {'LocalAuthority': self.las([self.la('A', 'Low')])}}
+        with unittest.mock.patch.object(H, 'get_json', return_value=doc), \
+             unittest.mock.patch.object(H, 'laqn_checks'):
+            facts, _ = H.harvest_laqn()
+        self.assertEqual({f['fixed_opener']['text'] for f in facts}, {'London air quality'})
 
     def test_a_tie_names_no_site(self):
         got = self.harvest([self.la('A', 'Low', '2'), self.la('B', 'Low', '2'),

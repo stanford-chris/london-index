@@ -1862,6 +1862,9 @@ def harvest_laqn():
     laqn_checks(las)
     url = 'https://www.londonair.org.uk/'
     src = 'London Air Quality Network'
+    # A fixed title: the model wrote "Air quality across London" over the
+    # sites that happen to be reporting (14 of 33 boroughs), 8 October 2026.
+    opener = {'emoji': '', 'text': 'London air quality'}
     # The card is dated by its readings, not by the run: BulletinDate is GMT
     # (it matched the newest @MeasurementDateGMT of the raw data, 20:00, on
     # 7 October 2026), an hour or more behind the clock. One bulletin hour
@@ -1873,19 +1876,21 @@ def harvest_laqn():
     above = sum(1 for *_, band in sites if band != 'Low')   # the feed's own band
     boroughs = {b for _, _, b, _, _ in sites}
     facts = [
-        fact(f'{above} of {len(sites)}', 'Sites above “Low”', src, url, dateline_text=when),
+        fact(f'{above} of {len(sites)}', 'Sites above “Low”', src, url, dateline_text=when,
+             fixed_opener=opener),
         fact(f'{len(boroughs)} of {len(las)}', 'Boroughs with a site reporting', src, url,
-             dateline_text=when),
+             dateline_text=when, fixed_opener=opener),
     ]
     top = max(idx for idx, *_ in sites)
     at_top = [s for s in sites if s[0] == top]
     if len(at_top) == 1:
         _, site, _, species, band = at_top[0]
         facts.append(fact(f'index {top} ({band})', f'Highest reading: {species} at {site}',
-                          src, url, dateline_text=when))
+                          src, url, dateline_text=when, fixed_opener=opener))
     else:
         facts.append(fact(f'index {top} ({at_top[0][4]}), at {len(at_top)} sites',
-                          'Highest reading', src, url, dateline_text=when))
+                          'Highest reading', src, url, dateline_text=when,
+                          fixed_opener=opener))
     return facts, None
 
 
