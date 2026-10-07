@@ -85,22 +85,25 @@ PROVENANCE = {
                   '“StationFootfall_2025_2026 .csv” on 7 October 2026)',
         'counts': 'EntryTapCount plus ExitTapCount per station for the newest TravelDate, Underground, '
                   'Overground, DLR and Elizabeth line; a station under 10% of its own trailing 7-day '
-                  'average is dropped as a data gap.',
+                  'average is dropped as a data gap. “Quietest” is drawn only from stations at least half '
+                  'their usual for that weekday (the median of their last four same weekdays), and the '
+                  'pair’s footnote counts any left out.',
         'checked_against': 'The same stations’ annualised 2025 figures in Annual Station Counts: daily sum '
                            'over annual, median 1.027 over 197 stations (audit, 7 October 2026). The day '
                            'itself has no second publisher.',
         'complete_fetch': 'One CSV; no (date, station) pair twice; 433 stations on the newest day '
                           '(3 October 2026) against a trailing median of 433.',
-        'labels': 'Held: “Quietest” can be a part-closed station (Roding Valley 124 against about 491 on '
-                  '26 September 2026, posted 4 October). The title and “entire TfL network” are true.',
-        'verified': '2026-10-07',
+        'labels': 'True since 8 October 2026 (released): “Quietest” can no longer be a part-closed station '
+                  '(Roding Valley 124 against about 491 on 26 September 2026, posted 4 October). Same '
+                  'weekday, not a 7-day average: 103 ordinary stations read “under half” a 7-day average on '
+                  '27 September (a Sunday), 39 under half their own Sundays.',
+        'verified': '2026-10-08',
         'checks': [
             {'kind': 'SHAPE', 'when': 'build',
              'what': 'The newest day has at least 95% of the trailing 7-day median station count (100% '
                      'on 3 October 2026; 96% on 26 September, 73% on a strike day, 11% on Christmas Day).'},
             {'kind': 'SHAPE', 'when': 'build',
-             'what': 'The quietest station is at least half its own trailing average (Roding Valley 308 '
-                     'against 467, 66%, on 3 October 2026), and no (date, station) pair repeats.'},
+             'what': 'No (date, station) pair repeats.'},
             {'kind': 'SHAPE', 'when': 'build',
              'what': 'The S3 Network Demand listing is complete (IsTruncated false; 17 keys).'},
             {'kind': 'RECONCILE', 'when': 'audit',
@@ -126,38 +129,41 @@ PROVENANCE = {
     'river_levels': {
         'source': 'Environment Agency flood-monitoring API, the latest level reading at six curated '
                   'gauges (RIVER_STATIONS) with each gauge’s published typical range (stageScale)',
-        'counts': 'Stage in metres above the gauge’s own datum (mASD), not water depth, placed within '
-                  'its typical low and high; “Fullest” and “Driest” rank the six.',
+        'counts': 'Where each gauge’s stage sits within its own typical low and high, as a bare percentage '
+                  'under “Position in typical range”; “Fullest” and “Driest” rank the gauges that read in '
+                  'the last two hours. The stage in metres (a height on the gauge, not water depth) is not '
+                  'shown. Title fixed: “London river gauges”.',
         'checked_against': 'None available: no second publisher of these gauges. The station record’s '
                            'latestReading is the same feed.',
-        'complete_fetch': 'Six of six answered on 7 October 2026; Roding at Wanstead read at 10:00 UTC '
-                          'against 12:00 for the rest (12 hours stale the night before).',
-        'labels': 'Held: no freshness check until now (a 12-hour-old Roding reading posted as “Driest” '
-                  'twice on 6 October); a model-written title said “across London” over six of about '
-                  '155 London gauges; a stage of 0.03m reads as 3 cm of water.',
-        'verified': '2026-10-07',
+        'complete_fetch': 'Six of six answered on 7 October 2026; Roding at Wanstead read at 10:00 UTC, '
+                          '11 hours behind the other five, and is left off and counted in the footnote.',
+        'labels': 'True since 8 October 2026 (released): six gauges named as the six this account follows, '
+                  'late gauges left off, no metres, the second line the readings’ own time.',
+        'verified': '2026-10-08',
         'checks': [
             {'kind': 'SHAPE', 'when': 'build',
-             'what': 'Every one of the six readings is no more than 2 hours old; fails on 7 October 2026 '
-                     '(Roding at Wanstead, 2 hours 37 minutes), the fault the vein is held for.'},
+             'what': 'At least four of the six read in the last two hours (five on the night of 7 October '
+                     '2026); a late gauge is left off rather than failing the card.'},
             {'kind': 'SHAPE', 'when': 'build',
-             'what': 'Every reading is a stage level in mASD (measure id contains “-level-stage-” and '
+             'what': 'Every reading used is a stage level in mASD (measure id contains “-level-stage-” and '
                      'ends “-mASD”, all six on 7 October 2026), the unit the typical range is in.'},
             {'kind': 'RECONCILE', 'when': 'none',
              'what': 'No independent figure: the Environment Agency is the only publisher of these gauges.'},
         ],
     },
     'river_gauge': {
-        'source': 'As river_levels, one gauge per card, the least recently featured',
-        'counts': 'One gauge’s stage now (mASD), its typical low and high, and where it sits between them.',
+        'source': 'As river_levels, one gauge per card, the least recently featured of those that read '
+                  'in the last two hours',
+        'counts': 'One gauge’s stage now (mASD: a height on the gauge, not water depth, as the footnote '
+                  'says), its typical low and high, and where it sits between them.',
         'checked_against': 'None available, as river_levels.',
         'complete_fetch': 'One gauge per card; the six fetched once per run and shared with river_levels.',
-        'labels': 'Held: “Level now” under a live clock regardless of the reading’s age; stage, not depth.',
-        'verified': '2026-10-07',
+        'labels': 'True since 8 October 2026 (released): only a fresh gauge is spotlit, the second line is '
+                  'its reading’s time, and the footnote says the metres are gauge heights.',
+        'verified': '2026-10-08',
         'checks': [
             {'kind': 'SHAPE', 'when': 'build',
-             'what': 'The card’s gauge read no more than 2 hours ago and in mASD (the gauge chosen on '
-                     '7 October 2026 passed; Roding at Wanstead, 2 hours 37 minutes old, would not).'},
+             'what': 'The card’s gauge read no more than 2 hours ago and in mASD.'},
             {'kind': 'RECONCILE', 'when': 'none',
              'what': 'No independent figure: the Environment Agency is the only publisher of these gauges.'},
         ],
@@ -250,25 +256,24 @@ PROVENANCE = {
     'laqn': {
         'source': 'London Air Quality Network (Imperial College), hourly index, '
                   'api.erg.ic.ac.uk/AirQuality/Hourly/MonitoringIndex/GroupName=London/Json',
-        'counts': 'Species readings by band for the hour; LocalAuthority entries in the feed; the highest '
-                  'index across species.',
+        'counts': 'By SITE: sites whose highest reading this hour is above “Low”, out of sites reporting a '
+                  'reading (a species reading “No data” is not one); boroughs with a site reporting, out of '
+                  'the 33 the feed lists; the highest reading, named only when one site holds it. The second '
+                  'line is the bulletin hour in London time (BulletinDate is GMT).',
         'checked_against': 'The network’s own site list (MonitoringSites/GroupName=London): 73 open sites '
-                           'in 21 boroughs against 72 sites in the index, 7 October 2026; 14 boroughs had '
-                           'a site reporting that hour.',
+                           'against 72 in the index, 7 October 2026. BulletinDate’s zone from the raw data’s '
+                           '@MeasurementDateGMT (newest 20:00 at 21:34 UTC, as the bulletin).',
         'complete_fetch': 'One document; 72 sites, none twice; one bulletin hour across all.',
-        'labels': 'Held: “Boroughs with a monitor” is len(LocalAuthority), 33, every borough listed; '
-                  '“Readings above ‘Low’” counts species readings and hides the “No data” ones (107 of '
-                  '194 the night before); “Worst reading” is the sort’s choice on a tie.',
-        'verified': '2026-10-07',
+        'labels': 'True since 8 October 2026 (released). Until then “Boroughs with a monitor” was 33 with '
+                  '14 reporting, “Readings above ‘Low’” hid 105 of 194 “No data” readings, and “Worst '
+                  'reading” took one of 15 tied.',
+        'verified': '2026-10-08',
         'checks': [
             {'kind': 'RECONCILE', 'when': 'build',
              'what': 'Sites in the index within 3% of open sites in the site list (72 against 73, 1.4%).'},
             {'kind': 'SHAPE', 'when': 'build',
-             'what': 'Boroughs listed equal boroughs with a site reporting; fails on 7 October 2026 '
-                     '(33 against 14), the fault the vein is held for.'},
-            {'kind': 'SHAPE', 'when': 'build',
-             'what': 'One bulletin hour across sites, no site twice, and the worst index not tied (one '
-                     'reading at 4 on 7 October 2026; 15 tied at 2 the night before).'},
+             'what': 'Exactly 33 local authorities listed (the card’s “of 33”), one bulletin hour across '
+                     'sites, no site twice.'},
         ],
     },
     'dcms_museums': {
@@ -362,18 +367,16 @@ PROVENANCE = {
     'road_works': {
         'source': 'TfL Unified API /Road/all/Disruption',
         'counts': 'TfL’s current listed disruptions, on its own corridors and on borough roads alike '
-                  '(55 of 115 on no TfL corridor, 7 October 2026); “Planned roadworks” is category Works, '
-                  'which includes emergency works.',
+                  '(55 of 115 on no TfL corridor, 7 October 2026); “Roadworks” is category Works, which '
+                  'includes emergency works.',
         'checked_against': 'None available: no independent count of London street works. TfL’s /Road '
                            'corridor list (24) is used for the shape checks.',
         'complete_fetch': 'One unpaged list, 115 unique ids.',
-        'labels': 'Held: “TfL’s red routes” and “The Transport for London Road Network” are false of '
-                  'nearly half the list; “Planned” includes emergency gas, water and electrical works.',
-        'verified': '2026-10-07',
+        'labels': 'Relabelled 8 October 2026 (his call, still held for his look): second line “TfL’s list '
+                  'of current disruptions”, footnote “on its red routes and on borough roads; not every '
+                  'roadwork in London”, and “Roadworks” for what was “Planned roadworks”.',
+        'verified': '2026-10-08',
         'checks': [
-            {'kind': 'SHAPE', 'when': 'build',
-             'what': 'No disruption is on no TfL corridor; fails on 7 October 2026 (55 of 115), the fault '
-                     'the vein is held for.'},
             {'kind': 'SHAPE', 'when': 'build',
              'what': 'No duplicate id, and every corridor id named is one /Road lists.'},
             {'kind': 'RECONCILE', 'when': 'none',
@@ -404,19 +407,18 @@ PROVENANCE = {
     'rail_departures': {
         'source': 'Rail Data Marketplace Live Departure Board (LDBWS GetDepartureBoard), 13 London '
                   'termini, 60-minute window, numRows 150',
-        'counts': 'Board entries summed across the 13 boards: a train starting at one terminus and calling '
-                  'at another counts on both; Elizabeth line trains included.',
+        'counts': 'Board entries summed across the 13 boards, labelled “Departures on the boards”: a train '
+                  'starting at one terminus and calling at another counts on both, and the footnote says '
+                  'so; Elizabeth line trains included and named.',
         'checked_against': 'None available: rsid is empty on most services (201 of 236 on 6 October), so '
                            'distinct trains cannot be counted exactly. Measured 7 October 2026, 13:30 BST: '
                            '35 services on one board started at another of the 13.',
         'complete_fetch': 'Thirteen boards, each under numRows (81 at most).',
-        'labels': 'Held: the total and the operators’ late shares are not distinct trains; “National Rail” '
-                  'includes 44 of 236 Elizabeth line departures (6 October).',
-        'verified': '2026-10-07',
+        'labels': 'Relabelled 8 October 2026 (his call, still held for his look): title “London’s '
+                  'departure boards”, the total “Departures on the boards”, the footnote naming National '
+                  'Rail and the Elizabeth line and the double count.',
+        'verified': '2026-10-08',
         'checks': [
-            {'kind': 'SHAPE', 'when': 'build',
-             'what': 'No departure on a board started at another of the 13 termini (origin crs); fails '
-                     'on 7 October 2026 (36), the fault the vein is held for.'},
             {'kind': 'SHAPE', 'when': 'build',
              'what': 'No board reached numRows (150), so none was cut off (81 at most).'},
             {'kind': 'RECONCILE', 'when': 'none',

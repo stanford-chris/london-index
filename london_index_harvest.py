@@ -3008,8 +3008,11 @@ def harvest_house_price_spotlight():
 # --- Roadworks and disruptions on TfL roads (live) -------------------------
 ROADS_URL = 'https://api.tfl.gov.uk/Road/all/Disruption'
 ROADS_PAGE = 'https://tfl.gov.uk/traffic/status'
-ROADS_LEAD = 'TfL’s red routes'
-ROADS_NOTE = 'The Transport for London Road Network, not every London street'
+# Relabelled 8 October 2026, his call (option A), after the source audit:
+# "TfL’s red routes" was false of 54 of 115 disruptions, on borough roads.
+ROADS_LEAD = 'TfL’s list of current disruptions'
+ROADS_NOTE = ('The disruptions TfL is tracking, on its red routes and on borough roads; '
+              'not every roadwork in London')
 SERIOUS = {'moderate', 'serious', 'severe'}
 
 
@@ -3023,10 +3026,11 @@ def road_facts(items, url=ROADS_PAGE):
     mk = lambda v, label: fact(f'{v:,}', label, 'TfL Road disruptions', url,
                                pair='roads_all', context_note=ROADS_NOTE,
                                dateline_lead=ROADS_LEAD)
-    # "Disruptions" alone: the title says roadworks and disruptions and the
-    # dateline "TfL’s red routes", his call, 6 October 2026.
+    # "Disruptions" alone: the title says roadworks and disruptions, his
+    # call, 6 October 2026. "Roadworks", not "Planned roadworks", since
+    # 8 October: TfL's Works category includes emergency gas and water works.
     return [mk(total, 'Disruptions'), mk(serious, 'Moderate or worse'),
-            mk(works, 'Planned roadworks')]
+            mk(works, 'Roadworks')]
 
 
 def road_checks(items, corridors=None):
@@ -3040,11 +3044,6 @@ def road_checks(items, corridors=None):
     known = {c.get('id') for c in corridors}
     unknown = sorted({c for i in items for c in (i.get('corridorIds') or []) if c not in known})
     require(not unknown, f'road disruptions on corridors /Road does not list: {unknown}')
-    # The card says "TfL's red routes": a disruption on none of TfL's 24
-    # corridors is on a borough road. 55 of 115 on 7 October 2026, so this
-    # fails until the label or the count changes (why the vein is held).
-    off = sum(1 for i in items if not i.get('corridorIds'))
-    require(off == 0, f'{off} of {len(items)} disruptions are on no TfL corridor')
 
 
 def harvest_road_works():
@@ -3199,14 +3198,18 @@ RAIL_PAGE = 'https://www.nationalrail.co.uk/'
 # at 1:52 a.m." wrapped, orphaning "a.m." (seen on a render, 12 September 2026).
 # Shortened again from "Departures in the next hour, …" on 24 September 2026,
 # his call, when the weekday joined the date and the orphan came back. The
-# first row ("Departing within the hour") says what is counted -- on the
+# first row ("Departures on the boards") says what is counted -- on the
 # rail_all card only. The ranked rail_top card has no such row, so its
 # footnote names the unit instead (RAIL_TOP_NOTE).
 RAIL_LEAD = f'Next hour, {len(RAIL_TERMINI)} main stations'
-RAIL_NOTE = 'National Rail, as on the live boards'
+# Since 8 October 2026, his call (option A): the total is departures on the
+# boards, not distinct trains, and the boards carry the Elizabeth line too
+# (44 of 236 one night), so the note says both.
+RAIL_NOTE = ('National Rail and Elizabeth line, as on the live boards; a train is '
+             'counted at each of these stations it calls at')
 # His call, 30 September 2026: the ranked card read "St Pancras: 57" under
 # "(National Rail, as on the live boards)" with nothing saying 57 what.
-RAIL_TOP_NOTE = 'Departures, as on National Rail’s live boards'
+RAIL_TOP_NOTE = 'Departures, as on the National Rail and Elizabeth line boards'
 RAIL_TOP_N = 4
 # "Running late, by operator": the boards name the operator of every train,
 # so the late ones can be counted by company. At least RAIL_OPS_MIN
@@ -3380,7 +3383,7 @@ def rail_facts(boards, url=RAIL_PAGE, baseline_total=None, baseline_on_time_shar
                                    context_note=all_note, dateline_lead=RAIL_LEAD)
     mk_ops = lambda v, label: fact(v, label, RAIL_SOURCE, url, pair='rail_ops_top',
                                    context_note=RAIL_OPS_NOTE, dateline_lead=RAIL_LEAD)
-    facts = [mk_all(total, 'Departing within the hour'),
+    facts = [mk_all(total, 'Departures on the boards'),
              mk_all(counts['on time'], 'On time'),
              mk_all(counts['late'], 'Running late'),
              mk_all(counts['cancelled'], 'Cancelled')]
@@ -3575,19 +3578,6 @@ def rail_board_checks(boards):
     require(not full, f'departure boards at the {RAIL_NUM_ROWS}-row cap: {full}')
 
 
-def rail_origin_checks(boards):
-    """A train that starts at one of the 13 and calls at another is on both
-    boards, so the summed total counts it twice: 35 such services at 13:30
-    BST on 7 October 2026 (Charing Cross and Cannon Street trains through
-    London Bridge, Elizabeth line trains from Paddington at Liverpool
-    Street). Fails until the total counts distinct trains (why it is held)."""
-    crs_of = dict(RAIL_TERMINI)
-    twice = sum(1 for name, services in boards.items() for svc in services
-                for o in (svc.get('origin') or [])
-                if o.get('crs') in set(crs_of.values()) - {crs_of.get(name)})
-    require(twice == 0, f'{twice} departures start at another of the {len(RAIL_TERMINI)} stations')
-
-
 def harvest_rail_station():
     boards, failed, err = _rail_boards()
     if err:
@@ -3611,7 +3601,6 @@ def harvest_rail_departures():
     if total < RAIL_MIN_DEPARTURES:
         return [], f'only {total} departures due across the termini; boards too quiet for a card'
     rail_board_checks(boards)
-    rail_origin_checks(boards)
     now = datetime.now(LONDON_TZ)
     facts = rail_facts(boards, baseline_total=rail_baseline(now=now),
                        baseline_on_time_share=rail_baseline_on_time_share(now=now), now=now)

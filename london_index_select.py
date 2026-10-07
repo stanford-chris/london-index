@@ -81,16 +81,15 @@ def _observe_source_check(key, text):
 # Held 7 October 2026, his call ("do all of this for the London Index,
 # too"), after an audit of every vein against live data and an independent
 # figure found these posting figures their labels overstate. Each is released
-# as it is fixed. A held vein still harvests when asked for by name
+# as it is fixed: laqn, river_levels, river_gauge and daily_footfall on
+# 8 October 2026, his call. A held vein still harvests when asked for by name
 # (build_pool(source=...)), so a fix can be previewed.
-#   laqn: "boroughs with a monitor" counts every listed borough (33; 14 report)
 #   station_usage: Tube rows carry Elizabeth line, DLR and Overground taps
-#   river_levels, river_gauge: no staleness check (one gauge 12 hours old);
-#     six gauges under a London-wide title; stage, not depth
 #   police: "reported crime" includes anti-social behaviour (13 percent)
-#   daily_footfall: "quietest" can be a station partly closed that day
 #   rail_departures: a train is counted at every terminus it calls at
+#     (relabelled 8 October; held for his look)
 #   road_works: 45 percent are off TfL's red routes, the card says red routes
+#     (relabelled 8 October; held for his look)
 #   dcms_museums, museum_spotlight: group totals include sites outside London
 #   congestion_charge: vehicle-days labelled vehicles; one impossible month
 #   events: one ticket seller's listings as "all events" in London
@@ -102,8 +101,7 @@ def _observe_source_check(key, text):
 #   stop_search: "for weapons" leaves out firearms and section 60
 #   reservoirs: Thames Water's two groups as "London's reservoirs"; 122 rows
 #     in another date format silently dropped
-HELD_VEINS = {'laqn', 'station_usage', 'river_levels', 'river_gauge', 'police',
-              'daily_footfall', 'rail_departures', 'road_works', 'dcms_museums',
+HELD_VEINS = {'station_usage', 'police', 'rail_departures', 'road_works', 'dcms_museums',
               'museum_spotlight', 'congestion_charge', 'events', 'london_cinema',
               'arrests', 'west_end_shows', 'lfb_animals', 'lift_releases',
               'stop_search', 'reservoirs'}
@@ -382,7 +380,7 @@ FIXED_OPENERS = {
     ('road_works', 'roads_all'): {'emoji': '🚧', 'text': 'Roadworks and disruptions'},
     ('lfb_animals', 'animals_top'): {'emoji': '🚒', 'text': 'Animal rescues by the fire brigade'},
     ('flood', 'flood_gap'): {'emoji': '🌊', 'text': 'Flood warnings and alerts'},
-    ('rail_departures', 'rail_all'): {'emoji': '🚆', 'text': 'Trains from London’s stations'},
+    ('rail_departures', 'rail_all'): {'emoji': '🚆', 'text': 'London’s departure boards'},
     ('rail_departures', 'rail_top'): {'emoji': '🚆', 'text': 'Busiest London train stations'},
     ('rail_departures', 'rail_ops_top'): {'emoji': '🚆', 'text': 'Trains running late, by operator'},
     # The seven London Datastore series, 12 September 2026.
