@@ -430,48 +430,40 @@ class GeneralCooldown(unittest.TestCase):
         state = {'vein_last_at': {'a': 'garbage', 'b': iso(hours_ago=2)}}
         self.assertEqual(self.veins(S.apply_recent_cooldown(pool, state)), {'a'})
 
-    def test_6_october_the_stalest_is_released_not_the_previous_post(self):
-        # The live failure: river levels led at 8:00, train departures at
-        # 20:30 the night before, and nothing else had a card. Releasing
-        # both put river levels up again at 12:30. Only the trains go back.
+    def test_8_october_nothing_but_the_last_vein_skips_the_slot(self):
+        # The live failure: Santander Cycles was the only vein with a card
+        # in it and led five posts running, once two hours after the last.
+        pool = mkfact('tfl_bikes', 3)
+        state = {'vein_last_at': {'tfl_bikes': iso(hours_ago=2)}}
+        with self.assertRaises(S.NothingFresh):
+            S.apply_recent_cooldown(pool, state)
+
+    def test_no_vein_that_led_within_the_day_is_released_early(self):
+        # Even the stalest of them stays held: the slot is skipped instead
+        # (the 7 October rule released rail_departures here).
         pool = mkfact('river_levels', 2) + mkfact('rail_departures', 4)
         state = {'vein_last_at': {'river_levels': iso(hours_ago=4),
                                   'rail_departures': iso(hours_ago=16)}}
-        out = S.apply_recent_cooldown(pool, state)
-        self.assertEqual(self.veins(out), {'rail_departures'})
+        with self.assertRaises(S.NothingFresh):
+            S.apply_recent_cooldown(pool, state)
 
-    def test_releases_only_as_many_as_needed_oldest_first(self):
-        pool = mkfact('a', 2) + mkfact('b', 2) + mkfact('c', 2)
-        state = {'vein_last_at': {'a': iso(hours_ago=1), 'b': iso(hours_ago=8),
-                                  'c': iso(hours_ago=15)}}
-        self.assertEqual(self.veins(S.apply_recent_cooldown(pool, state)), {'c'})
-
-    def test_a_released_vein_with_one_fact_does_not_count_as_a_card(self):
-        # c is stalest but has one fact, so b must come back too; a stays held.
-        pool = mkfact('a', 2) + mkfact('b', 2) + mkfact('c', 1)
-        state = {'vein_last_at': {'a': iso(hours_ago=1), 'b': iso(hours_ago=8),
-                                  'c': iso(hours_ago=15)}}
-        self.assertEqual(self.veins(S.apply_recent_cooldown(pool, state)), {'b', 'c'})
+    def test_a_vein_with_one_fact_left_is_not_a_card(self):
+        pool = mkfact('a', 2) + mkfact('c', 1)
+        state = {'vein_last_at': {'a': iso(hours_ago=1)}}
+        with self.assertRaises(S.NothingFresh):
+            S.apply_recent_cooldown(pool, state)
 
     def test_untouched_pool_when_nothing_led_recently(self):
         pool = mkfact('a', 2)
         self.assertEqual(S.apply_recent_cooldown(pool, {}), pool)
 
-    def test_select_releases_the_stale_vein_not_the_previous_one(self):
+    def test_select_skips_rather_than_repeat_a_recent_vein(self):
         pool = mkfact('river_levels', 2) + mkfact('rail_departures', 4)
         state = {'vein_last_at': {'river_levels': iso(hours_ago=4),
                                   'rail_departures': iso(hours_ago=16)}}
-        captured = {}
-
-        def fake_run(cmd, **kwargs):
-            captured['prompt'] = cmd[-1]
-            return SelectWiring._fake_claude(None, ['rail_departures:0',
-                                                    'rail_departures:1'])
-
-        with patch('subprocess.run', side_effect=fake_run):
-            sel = S.select(pool, state, history_path='/nonexistent')
-        self.assertEqual(sel['vein'], 'rail_departures')
-        self.assertNotIn('river_levels:0', captured['prompt'])
+        with patch('subprocess.run', side_effect=AssertionError('selector called')):
+            with self.assertRaises(S.NothingFresh):
+                S.select(pool, state, history_path='/nonexistent')
 
     def test_select_withholds_the_vein_that_just_led(self):
         pool = mkfact('tfl_bikes', 3) + mkfact('laqn', 3)
@@ -487,20 +479,6 @@ class GeneralCooldown(unittest.TestCase):
             sel = S.select(pool, state, history_path='/nonexistent')
         self.assertEqual(sel['vein'], 'laqn')
         self.assertNotIn('tfl_bikes:0', captured['prompt'])
-
-    def test_abandoned_when_it_would_leave_nothing(self):
-        # Only one fresh vein and it led four hours ago: post it again with
-        # new numbers rather than skip, same rule as every other cooldown.
-        pool = mkfact('tfl_bikes', 3)
-        state = {'vein_last_at': {'tfl_bikes': iso(hours_ago=4)}}
-
-        def fake_run(cmd, **kwargs):
-            return SelectWiring._fake_claude(None, ['tfl_bikes:0', 'tfl_bikes:1'])
-
-        with patch('subprocess.run', side_effect=fake_run):
-            sel = S.select(pool, state, history_path='/nonexistent')
-        self.assertEqual(sel['vein'], 'tfl_bikes')
-
 
 
 class CarriedFixedOpener(unittest.TestCase):

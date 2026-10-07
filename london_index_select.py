@@ -541,17 +541,18 @@ GENERAL_COOLDOWN_HOURS = 20
 
 
 def apply_recent_cooldown(pool, state, hours=GENERAL_COOLDOWN_HOURS):
-    """Hold out every vein that led within `hours`, releasing the STALEST
-    first when holding them all would leave nothing to post.
+    """Hold out every vein that led within `hours`. If that leaves nothing
+    to post, the slot is skipped (NothingFresh): no vein that led within
+    the day is ever released early.
 
-    Added 7 October 2026. Until then the general cooldown went through
-    apply_cooldown() as one group, so it was all or nothing: on 6 October
-    river levels led at 8:00, and at 12:30 holding it and the train
-    departures vein (led 16 hours earlier) left nothing pickable, so BOTH
-    were released and river levels led again, two posts in a row. Released
-    oldest first, the train vein would have come back and river levels
-    stayed held. The vein that led the previous post now returns only when
-    it is the one thing left with a card in it.
+    ⚠️ Until 8 October 2026 a held vein was released, the stalest first,
+    whenever holding them all left nothing pickable (7 October; before that
+    all of them at once). With 19 veins held for the source audit and every
+    other fact already posted at its value, Santander Cycles was the only
+    vein with a card in it, so it was released and led five posts running,
+    one of them two hours after the last. His call, 8 October: skip the
+    slot instead. A skipped slot exits 0 and bot_health_check.py still sees
+    a feed that has gone quiet for a day.
     """
     now = datetime.now(timezone.utc)
     led = []
@@ -564,24 +565,16 @@ def apply_recent_cooldown(pool, state, hours=GENERAL_COOLDOWN_HOURS):
             led.append((age, vein))
     if not led:
         return pool
-    led.sort()                      # newest first, so pop() takes the stalest
-    total = int(hours)
-    while led:
-        held = {v for _, v in led}
-        cooled = [f for f in pool if f['vein'] not in held]
-        if pickable(cooled):
-            desc = ', '.join(f'{v} ({int(a.total_seconds() // 3600)}h of {total}h)'
-                             for a, v in led)
-            print(f'Veins that led within the day on cooldown: {desc} - '
-                  f'{len(pool) - len(cooled)} fact(s) withheld.')
-            return cooled
-        age, vein = led.pop()
-        print(f'Released {vein} ({int(age.total_seconds() // 3600)}h of '
-              f'{total}h), the stalest on cooldown: holding every vein that '
-              'led within the day would leave nothing to post.')
-    print('Every vein that led within the day was released: nothing else '
-          'has a card in it.')
-    return pool
+    held = {v for _, v in led}
+    cooled = [f for f in pool if f['vein'] not in held]
+    desc = ', '.join(f'{v} ({int(a.total_seconds() // 3600)}h of {int(hours)}h)'
+                     for a, v in sorted(led))
+    if not pickable(cooled):
+        raise NothingFresh(f'every vein with a card in it led within the last '
+                           f'{int(hours)} hours: {desc}')
+    print(f'Veins that led within the day on cooldown: {desc} - '
+          f'{len(pool) - len(cooled)} fact(s) withheld.')
+    return cooled
 
 
 # --- Vein rotation: cooldowns + starve-floor --------------------------
