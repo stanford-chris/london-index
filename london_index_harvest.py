@@ -600,8 +600,9 @@ def reconcile(name, ours, theirs, rel_tol):
     """Require ours to be within rel_tol of theirs (0 means exactly equal)."""
     require(theirs not in (None, 0), f'{name}: no independent figure to check against')
     diff = abs(ours - theirs) / abs(theirs)
+    show = lambda v: f'{v:,.0f}' if abs(v) >= 100 else f'{v:g}'
     require(diff <= rel_tol,
-            f'{name}: {ours:,.0f} against {theirs:,.0f} ({diff:.1%} apart, '
+            f'{name}: {show(ours)} against {show(theirs)} ({diff:.1%} apart, '
             f'tolerance {rel_tol:.1%})')
 
 
@@ -628,6 +629,42 @@ def dead_heat(values, rel_threshold=0.02):
     return best[:4] if best else None
 
 
+BIKES_XML_URL = 'https://tfl.gov.uk/tfl/syndication/feeds/cycle-hire/livecyclehireupdates.xml'
+# Bikes move between the two fetches, docks and stations do not: measured
+# 7 October 2026 over three paired fetches, stations 799 = 799 and docks
+# 21,016 = 21,016 every time, bikes 8,649 against 8,656 at worst (0.08%).
+BIKES_TOLERANCE = 0.01
+
+
+def bikes_xml_totals(text):
+    """(stations, bikes, docks) summed from TfL's live cycle-hire XML, or None."""
+    import xml.etree.ElementTree as ET
+    try:
+        root = ET.fromstring(text)
+        st = root.findall('station')
+        return (len(st), sum(int(s.findtext('nbBikes') or 0) for s in st),
+                sum(int(s.findtext('nbDocks') or 0) for s in st))
+    except (ET.ParseError, ValueError):
+        return None
+
+
+def bikes_checks(points, prop, total_bikes, total_docks, xml_text=None):
+    """BikePoint against itself and against TfL's separate live XML feed
+    (see london_index_provenance.py). `xml_text` is fetched when not given."""
+    ids = [bp.get('id') for bp in points]
+    require(len(set(ids)) == len(ids), 'BikePoint: duplicate station ids')
+    # A docked bike is a standard bike or an e-bike: true at all 799 stations.
+    require(all(int(prop(bp, 'NbBikes') or 0) ==
+                int(prop(bp, 'NbStandardBikes') or 0) + int(prop(bp, 'NbEBikes') or 0)
+                for bp in points), 'BikePoint: NbBikes is not standard plus e-bikes at every station')
+    xml = bikes_xml_totals(xml_text if xml_text is not None else (curl(BIKES_XML_URL) or ''))
+    require(xml is not None, 'live cycle-hire XML could not be read')
+    stations, bikes, docks = xml
+    require(stations == len(points), f'stations: {len(points)} in BikePoint, {stations} in the live XML')
+    require(docks == total_docks, f'docks: {total_docks:,} in BikePoint, {docks:,} in the live XML')
+    reconcile('docked bikes against the live XML', total_bikes, bikes, BIKES_TOLERANCE)
+
+
 def harvest_tfl_bikes():
     d = tfl_get_json('https://api.tfl.gov.uk/BikePoint')
     if not isinstance(d, list):
@@ -642,6 +679,7 @@ def harvest_tfl_bikes():
     total_bikes = sum(int(prop(bp, 'NbBikes') or 0) for bp in d)
     total_docks = sum(int(prop(bp, 'NbDocks') or 0) for bp in d)
     zero_bike = sum(1 for bp in d if int(prop(bp, 'NbBikes') or 0) == 0)
+    bikes_checks(d, prop, total_bikes, total_docks)
     url = 'https://api.tfl.gov.uk/BikePoint'
     # The title is fixed here, so the first row need not repeat the scheme's
     # name: his call on 23 September 2026, on a live card reading "Santander
@@ -698,10 +736,28 @@ def flood_facts(items, url=FLOOD_URL):
     ]
 
 
+FLOOD_ALL_URL = 'https://environment.data.gov.uk/flood-monitoring/id/floods'
+
+
+def flood_checks(london_items, all_items):
+    """The county=London filter against the unfiltered national list read
+    client-side: the API's county match is a substring match (county=folk
+    returns Norfolk's), so the client-side count is "London" anywhere in
+    floodArea.county. Measured 7 October 2026: 0 against 0 (1 item
+    nationally); an exact count, so a plain equality, not reconcile()."""
+    ours = len(london_items)
+    theirs = sum(1 for i in all_items if 'London' in ((i.get('floodArea') or {}).get('county') or ''))
+    require(ours == theirs, f'flood items: {ours} from county=London, {theirs} in the national list')
+
+
 def harvest_flood():
     d = get_json(FLOOD_URL)
     if not isinstance(d, dict) or 'items' not in d:
         return [], 'flood-monitoring fetch failed'
+    every = get_json(FLOOD_ALL_URL)
+    require(isinstance(every, dict) and isinstance(every.get('items'), list),
+            'national flood list could not be read')
+    flood_checks(d['items'], every['items'])
     return flood_facts(d['items']), None
 
 
@@ -758,8 +814,34 @@ def _river_readings():
         value, when = items[0]['value'], items[0].get('dateTime')
         pct = (value - low) / (high - low) * 100
         readings.append((name, value, low, high, pct, when))
+        _RIVER_MEMO.setdefault('measures', {})[name] = items[0].get('measure') or ''
     _RIVER_MEMO['readings'] = (readings, failed)
     return readings, failed
+
+
+# A live gauge reading older than this is not "now". Measured 7 October 2026
+# at 12:23 UTC: five of the six gauges had read at 12:00, Roding at Wanstead
+# at 10:00 (and 12 hours stale the night before), which posted as "Driest"
+# on two cards on 6 October.
+RIVER_MAX_AGE = timedelta(hours=2)
+
+
+def river_checks(reading, now=None):
+    """One reading used on a card: fresh, and a stage reading in metres above
+    the gauge's own datum (mASD), the unit its typical range is published
+    in. All six measures matched '-level-stage-...-mASD' on 7 October 2026."""
+    name, when = reading[0], reading[5]
+    now = now or datetime.now(timezone.utc)
+    try:
+        t = datetime.fromisoformat(str(when).replace('Z', '+00:00'))
+    except ValueError:
+        t = None
+    require(t is not None and t.tzinfo is not None, f'{name}: reading time {when!r} unreadable')
+    age = now - t
+    require(age <= RIVER_MAX_AGE, f'{name}: latest reading is {age} old (limit {RIVER_MAX_AGE})')
+    measure = (_RIVER_MEMO.get('measures') or {}).get(name, '')
+    require('-level-stage-' in measure and measure.endswith('-mASD'),
+            f'{name}: reading is not a stage level in mASD ({measure!r})')
 
 
 # --- River gauge spotlight: one gauge against its own range -----------------
@@ -793,6 +875,7 @@ def harvest_river_gauge():
         return [], f'no station returned a usable reading; failed: {failed}'
     by_name = {r[0]: r for r in readings}
     name = spotlight_pick(list(by_name), last_featured(GAUGE_OPENER_PREFIX, RIVER_STATIONS))
+    river_checks(by_name[name])
     url = f'https://environment.data.gov.uk/flood-monitoring/id/stations/{RIVER_STATIONS[name]}'
     facts = gauge_facts(by_name[name], url)
     if failed:
@@ -804,6 +887,9 @@ def harvest_river_levels():
     readings, failed = _river_readings()
     if not readings:
         return [], f'no station returned a usable reading; failed: {failed}'
+    # Fullest and driest rank every gauge, so every gauge must be fresh.
+    for r in readings:
+        river_checks(r)
 
     url = 'https://environment.data.gov.uk/flood-monitoring/id/stations/{id}/readings'
 
@@ -979,7 +1065,45 @@ def harvest_police():
         return [], 'no populated month found in the last 4 tried'
     prev = _police_month(lat, lng, _shift_month(ym, 1))
     url = f'https://data.police.uk/api/crimes-street/all-crime?lat={lat}&lng={lng}&date={ym}'
+    central_checks(d, ym, lat, lng)
     return central_facts(d, prev, ym, url), None
+
+
+# The point search against the same mile drawn as a 48-sided polygon and
+# POSTed: 4,160 against 4,154 for August 2026 (0.14%), every polygon id among
+# the point search's, measured 7 October 2026.
+CENTRAL_POLY_TOLERANCE = 0.005
+POLICE_CAP = 10000   # data.police.uk refuses a larger answer, so a full one is truncated
+
+
+def mile_ring(lat, lng, sides=48, metres=1609.344):
+    """A circle of one mile as (lon, lat) pairs, the ring shape _poly_post takes."""
+    import math
+    ring = []
+    for k in range(sides):
+        t = 2 * math.pi * k / sides
+        ring.append((lng + metres * math.sin(t) / (111320 * math.cos(math.radians(lat))),
+                     lat + metres * math.cos(t) / 111320))
+    return ring
+
+
+def central_checks(records, ym, lat, lng, poly=None):
+    """The central card's month (see london_index_provenance.py). `poly` is
+    the polygon answer, fetched when not given."""
+    ids = [r.get('id') for r in records]
+    require(len(records) < POLICE_CAP, f'{len(records)} records: at the API cap, so truncated')
+    require(len(set(ids)) == len(ids), 'duplicate crime ids')
+    require({r.get('month') for r in records} == {ym}, f'records not all for {ym}')
+    poly = poly if poly is not None else _poly_post(mile_ring(lat, lng), ym)
+    require(poly is not None, 'polygon search of the same mile could not be made')
+    reconcile('central mile, point search against polygon', len(records), len(poly),
+              CENTRAL_POLY_TOLERANCE)
+    # The card is "Reported crime"; data.police.uk's all-crime includes
+    # anti-social behaviour, which the Met's own counts (the borough cards)
+    # leave out: 527 of 4,160 in August 2026. Fails until the vein counts
+    # like with like (why it is held).
+    asb = sum(1 for r in records if r.get('category') == 'anti-social-behaviour')
+    require(asb == 0, f'{asb:,} anti-social behaviour records counted as reported crime')
 
 
 # Eight boroughs spanning the compass, each a real civic-building address -
@@ -1160,8 +1284,15 @@ def mps_parse(text):
     mi, ti, ni, gi, mei, ci, ri = (header.index(n) for n in need)
     months = {}
     refresh = ''
+    # Every Borough row (Other / NK and Aviation Policing included) against
+    # every Safer Neighbourhood Teams row, per month, for the source check
+    # in mps_source_checks().
+    checks = {}
     for r in rows:
         try:
+            if r[mei] == 'Offences' and r[ti] in ('Borough', 'Safer Neighbourhood Teams'):
+                c = checks.setdefault(r[mi][:7], {'borough_all': 0, 'snt': 0})
+                c['borough_all' if r[ti] == 'Borough' else 'snt'] += int(r[ci] or 0)
             if r[ti] != 'Borough' or r[mei] != 'Offences':
                 continue
             name = r[ni].strip()
@@ -1179,7 +1310,7 @@ def mps_parse(text):
         b['groups'][r[gi]] = b['groups'].get(r[gi], 0) + n
     if not months:
         raise ValueError('no borough offence rows parsed')
-    return {'refresh': refresh, 'months': months}
+    return {'refresh': refresh, 'months': months, 'checks': checks}
 
 
 def head_etag(url):
@@ -1223,13 +1354,14 @@ def mps_borough_months(cache_path=MPS_CACHE, download=None):
     the Datastore when needs_refetch() says so. A failed download leaves the
     cache as it was (with its attempt time stamped) and returns it."""
     cache = _read_cache(cache_path)
-    if needs_refetch(cache, url=MPS_DASHBOARD_URL):
+    if needs_refetch(cache, url=MPS_DASHBOARD_URL) or _lacks_checks(cache):
         text = (download or _download_text)(MPS_DASHBOARD_URL, timeout=600)
         cache['fetched'] = datetime.now(timezone.utc).isoformat()
         if text:
             try:
                 parsed = mps_parse(text)
                 cache['months'] = parsed['months']
+                cache['checks'] = parsed['checks']
                 cache['refresh'] = parsed['refresh']
                 cache['etag'] = head_etag(MPS_DASHBOARD_URL)
                 print(f'Met dashboard: fetched, {len(parsed["months"])} months, refresh {parsed["refresh"]}.',
@@ -1240,6 +1372,34 @@ def mps_borough_months(cache_path=MPS_CACHE, download=None):
             print('Met dashboard: download failed; using the cache as it stands.', file=sys.stderr)
         _write_cache(cache, cache_path)
     return cache.get('months') or {}
+
+
+def _lacks_checks(cache, now=None):
+    """A cache written before mps_parse() kept its check totals (7 October
+    2026) has none, so it is read again once, at most once a day."""
+    if 'checks' in cache or not cache.get('months'):
+        return False
+    now = now or datetime.now(timezone.utc)
+    try:
+        return now - datetime.fromisoformat(cache['fetched']) >= timedelta(hours=REFETCH_AFTER_HOURS)
+    except (KeyError, ValueError):
+        return True
+
+
+def mps_source_checks(ym, counts, cache_path=MPS_CACHE):
+    """The Met dashboard month the borough cards use: its Borough rows (all
+    of them) sum to its Safer Neighbourhood Teams rows exactly, which they
+    did for every month from July 2024 to August 2026 (78,647 = 78,647 for
+    August), and the 32 boroughs the Met polices are all there (the City
+    has its own force and is never in this file)."""
+    chk = (_read_cache(cache_path).get('checks') or {}).get(ym)
+    require(chk is not None, f'Met dashboard: no borough/neighbourhood totals kept for {ym}')
+    require(chk['borough_all'] == chk['snt'],
+            f'Met dashboard {ym}: Borough rows {chk["borough_all"]:,}, '
+            f'Safer Neighbourhood Teams rows {chk["snt"]:,}')
+    expected = set(ALL_BOROUGHS) - {'City of London'}
+    require(set(counts) == expected,
+            f'Met dashboard {ym}: boroughs missing {sorted(expected - set(counts))}')
 
 
 def borough_source():
@@ -1347,6 +1507,8 @@ def harvest_police_boroughs():
     if src is None:
         return [], 'no populated month found in the last 4 tried'
     ym, counts, prev_counts, cats, source, url, note, type_groups, name_fn = src
+    if source == MPS_SOURCE:
+        mps_source_checks(ym, counts)
     if len(counts) < 2:
         return [], f'fewer than 2 boroughs answered for {ym}'
     # A change pair over a partial previous month would compare the boroughs
@@ -1495,6 +1657,8 @@ def harvest_police_spotlight():
     if src is None:
         return [], 'no populated month found in the last 4 tried'
     ym, counts, prev_counts, cats, source, url, note, _groups, name_fn = src
+    if source == MPS_SOURCE:
+        mps_source_checks(ym, counts)
     if not counts:
         return [], f'no borough answered for {ym}'
     name = spotlight_pick(list(counts), spotlight_last_featured())
@@ -1504,6 +1668,35 @@ def harvest_police_spotlight():
     if missing:
         facts[0]['note'] = f'{len(missing)} of {len(ALL_BOROUGHS)} boroughs missing for {ym}: {missing}'
     return facts, None
+
+
+def cycle_hire_checks(sheet, daily):
+    """The Data sheet's daily column against its own monthly, annual and
+    grand-total columns, which TfL fills separately: equal for all 194
+    months, every year and the grand total (154,053,134) on 7 October 2026.
+    `sheet` is every row as read, `daily` the dated rows, sorted. Columns:
+    B/C day and hires, E/F month and hires, H/I year and hires."""
+    from collections import defaultdict
+    days = [r[1] for r in daily]
+    require(len(set(days)) == len(days), 'cycle hires: a date appears twice')
+    gaps = sum(1 for a, b in zip(days, days[1:]) if (b - a) != timedelta(days=1))
+    require(gaps == 0, f'cycle hires: {gaps} gap(s) between consecutive dates')
+    by_month, by_year = defaultdict(int), defaultdict(int)
+    for r in daily:
+        by_month[(r[1].year, r[1].month)] += r[2]
+        by_year[r[1].year] += r[2]
+    monthly = [(r[4], r[5]) for r in sheet if len(r) > 5 and isinstance(r[4], datetime)
+               and isinstance(r[5], (int, float))]
+    require(monthly, 'cycle hires: no monthly column found')
+    bad = [m.strftime('%Y-%m') for m, n in monthly if by_month[(m.year, m.month)] != n]
+    require(not bad, f'cycle hires: daily rows do not sum to the monthly column for {bad[:5]}')
+    latest = days[-1].year
+    annual = [r[8] for r in sheet if len(r) > 8 and r[7] == latest and isinstance(r[8], (int, float))]
+    require(annual == [by_year[latest]],
+            f'cycle hires {latest}: daily rows sum to {by_year[latest]:,}, annual column {annual}')
+    grand = [r[2] for r in sheet if len(r) > 2 and r[1] == 'Daily Grand Total']
+    require(grand == [sum(by_year.values())], f'cycle hires: daily grand total {grand} '
+            f'against {sum(by_year.values()):,} summed')
 
 
 def harvest_cycle_hires():
@@ -1522,11 +1715,13 @@ def harvest_cycle_hires():
             return [], 'openpyxl not installed'
         wb = openpyxl.load_workbook(path, data_only=True)
         ws = wb['Data']
-        rows = [r for r in ws.iter_rows(values_only=True)
+        sheet = list(ws.iter_rows(values_only=True))
+        rows = [r for r in sheet
                 if isinstance(r[1], datetime) and isinstance(r[2], (int, float))]
         if not rows:
             return [], 'no dated rows found in cycle-hires sheet'
         rows.sort(key=lambda r: r[1])
+        cycle_hire_checks(sheet, rows)
         latest_date, latest_count = rows[-1][1], rows[-1][2]
         year_rows = [r for r in rows if r[1].year == latest_date.year]
         avg = sum(r[2] for r in year_rows) / len(year_rows)
@@ -1557,6 +1752,47 @@ def harvest_cycle_hires():
         return facts, None
 
 
+LAQN_SITES_URL = 'https://api.erg.ic.ac.uk/AirQuality/Information/MonitoringSites/GroupName=London/Json'
+# Sites in the hourly index against open sites in the network's own site
+# list: 72 against 73 on 7 October 2026 (1.4%).
+LAQN_SITES_TOLERANCE = 0.03
+
+
+def _as_list(x):
+    return x if isinstance(x, list) else ([x] if x else [])
+
+
+def laqn_checks(las, readings, sites_doc=None):
+    """The hourly index (see london_index_provenance.py). `sites_doc` is the
+    MonitoringSites answer, fetched when not given."""
+    sites, reporting, bulletins = [], set(), set()
+    for la in las:
+        for s in _as_list(la.get('Site')):
+            sites.append(s.get('@SiteCode'))
+            bulletins.add(s.get('@BulletinDate'))
+            if any(isinstance(sp, dict) and sp.get('@AirQualityBand') not in (None, 'No data')
+                   for sp in _as_list(s.get('Species'))):
+                reporting.add(la.get('@LocalAuthorityName'))
+    require(len(set(sites)) == len(sites), 'LAQN: a site appears twice in the hourly index')
+    require(len(bulletins) == 1, f'LAQN: sites carry {len(bulletins)} different bulletin hours')
+    sites_doc = sites_doc if sites_doc is not None else get_json(LAQN_SITES_URL)
+    listed = _as_list(((sites_doc or {}).get('Sites') or {}).get('Site'))
+    open_sites = [s for s in listed if not s.get('@DateClosed')]
+    reconcile('LAQN sites in the hourly index against open sites', len(set(sites)),
+              len(open_sites), LAQN_SITES_TOLERANCE)
+    # "Boroughs with a monitor" is len(LocalAuthority): every borough the feed
+    # lists, 33, of which 14 had a site reporting this hour on 7 October 2026.
+    # Fails until the card counts reporting boroughs (why it is held).
+    require(len(las) == len(reporting),
+            f'LAQN: {len(las)} boroughs listed, {len(reporting)} with a site reporting')
+    # "Worst reading" must be one reading: a tie (15 at index 2 on the night
+    # of 6 October) is decided by the sort, not the air.
+    if readings:
+        top = max(r[0] for r in readings)
+        tied = sum(1 for r in readings if r[0] == top)
+        require(tied == 1, f'LAQN: {tied} readings tie for the worst, index {top}')
+
+
 def harvest_laqn():
     d = get_json('https://api.erg.ic.ac.uk/AirQuality/Hourly/MonitoringIndex/GroupName=London/Json')
     if not isinstance(d, dict):
@@ -1585,6 +1821,7 @@ def harvest_laqn():
                     readings.append((int(idx), s.get('@SiteName'), sp.get('@SpeciesDescription'), band))
     if not bands:
         return [], 'no site readings found'
+    laqn_checks(las, readings)
     url = 'https://www.londonair.org.uk/'
     facts = [
         fact(str(sum(v for k, v in bands.items() if k not in ('Low', 'No data'))),
@@ -1758,6 +1995,42 @@ DCMS_SPOTLIGHT_TABLES = {
 }
 
 
+# Every row Table 1 carries, as of the 2024/25 release (read 7 October 2026):
+# the 13 London museums, five outside London, and the Total.
+DCMS_TABLE1_ROWS = LONDON_DCMS_MUSEUMS | {
+    'Museum of Science and Industry in Manchester', 'National Coal Mining Museum',
+    'National Museums Liverpool', 'Royal Armouries', 'Tyne and Wear Museums', 'Total'}
+# DCMS rounds its Total row to the thousand, so the rows can miss it by up
+# to 500: 224 for 2024/25, 490 at most over the twelve years to it.
+DCMS_TOTAL_ROUNDING = 500
+
+
+def dcms_table1_checks(df, header_row):
+    """Table 1 as published: exactly the known rows, and for the newest year
+    every museum's figure summing to the Total row within its rounding."""
+    names, latest = [], {}
+    year_cols = [i for i, h in enumerate(df.iloc[header_row, :])
+                 if re.match(r'^\d{4}/\d{2}', str(h).strip())]
+    require(year_cols, 'DCMS Table 1: no year columns')
+    col = year_cols[-1]
+    for i in range(header_row + 1, len(df)):
+        raw = df.iloc[i, 0]
+        if not isinstance(raw, str):
+            continue
+        name = re.sub(r'\s*\[Note \d+\]\s*$', '', raw).strip()
+        names.append(name)
+        v = df.iloc[i, col]
+        if isinstance(v, (int, float)) and v == v:
+            latest[name] = float(v)
+    require(set(names) == DCMS_TABLE1_ROWS and len(names) == len(DCMS_TABLE1_ROWS),
+            f'DCMS Table 1 rows changed: new {sorted(set(names) - DCMS_TABLE1_ROWS)}, '
+            f'gone {sorted(DCMS_TABLE1_ROWS - set(names))}')
+    require('Total' in latest, 'DCMS Table 1: no Total for the newest year')
+    rows_sum = sum(v for n, v in latest.items() if n != 'Total')
+    require(abs(rows_sum - latest['Total']) <= DCMS_TOTAL_ROUNDING,
+            f'DCMS Table 1: museums sum to {rows_sum:,.0f}, Total row {latest["Total"]:,.0f}')
+
+
 def dcms_table(sheet):
     """One DCMS sheet as {museum: {year_label: value}} for the London
     museums, plus the ordered list of year labels ('2024-25'). Downloads the
@@ -1784,6 +2057,8 @@ def dcms_table(sheet):
     if header_row is None:
         _DCMS_MEMO[sheet] = None
         return None
+    if sheet == '1':
+        dcms_table1_checks(df, header_row)
     headers = [str(c).strip() for c in df.iloc[header_row, :]]
     years = []
     for i, hd in enumerate(headers):
@@ -1887,6 +2162,7 @@ def harvest_dcms_museums():
     header_row = _dcms_header_row(df)
     if header_row is None:
         return [], 'DCMS museums header row not found (sheet layout changed?)'
+    dcms_table1_checks(df, header_row)
 
     headers = [str(c).strip() for c in df.iloc[header_row, :]]
     year_cols = [(i, h) for i, h in enumerate(headers) if re.match(r'^\d{4}/\d{2}', h)]
@@ -1964,9 +2240,13 @@ def _annual_station_counts_file():
         if body is None:
             return None
         try:
-            return ET.fromstring(body)
+            root = ET.fromstring(body)
         except ET.ParseError:
             return None
+        # One page of listing holds 1,000 keys; these hold 17 at most.
+        require(root.findtext('s3:IsTruncated', namespaces=ns) == 'false',
+                f'TfL S3 listing of {prefix!r} is truncated')
+        return root
 
     top = list_prefix('Annual Station Counts/')
     if top is None:
@@ -2051,6 +2331,16 @@ def harvest_station_usage():
     # interchanges counted under a different mode's row, "---station
     # closed---"), which read as real data to a naive numeric coercion.
     usage = {}
+    # Stations whose other modes' rows say "---see LU---": the LU row there
+    # carries those modes' gate taps too (Paddington's LU row is 58.0 million
+    # with the Elizabeth line's 24.0 million inside it, measured on 2025
+    # daily footfall), so it is not a Tube count. 35 such rows in 2025.
+    shared = set()
+    for i in range(header_row + 1, len(df)):
+        row = df.iloc[i]
+        if str(row.iloc[col['Mode']]).strip() != 'LU' and \
+                str(row.iloc[col['Coverage']]).strip() == '---see LU---':
+            shared.add(_clean_station_usage_name(str(row.iloc[col['Station']]).strip()))
     for i in range(header_row + 1, len(df)):
         row = df.iloc[i]
         if str(row.iloc[col['Mode']]).strip() != 'LU':
@@ -2113,7 +2403,17 @@ def harvest_station_usage():
         facts.append(fact(f'{count:,}', name,
                            'TfL Annual Station Counts', url, period=str(year),
                            pair='usage_top', context_note=context_note))
+    station_usage_checks(facts, shared)
     return facts, None
+
+
+def station_usage_checks(facts, shared):
+    """No station a card names may be one whose LU row also carries another
+    mode's taps. Fails on 7 October 2026 (Tottenham Court Road, Liverpool
+    Street, Paddington, Stratford among them): why the vein is held."""
+    named = {f['label'].split(': ', 1)[-1] for f in facts}
+    mixed = sorted(named & shared)
+    require(not mixed, f'stations whose LU count includes other modes: {mixed}')
 
 
 def _daily_footfall_file():
@@ -2134,6 +2434,8 @@ def _daily_footfall_file():
         root = ET.fromstring(body)
     except ET.ParseError:
         return None
+    require(root.findtext('s3:IsTruncated', namespaces=ns) == 'false',
+            'TfL S3 Network Demand listing is truncated')
     candidates = []
     for c in root.findall('s3:Contents', ns):
         key_el, mod_el = c.find('s3:Key', ns), c.find('s3:LastModified', ns)
@@ -2199,6 +2501,37 @@ FOOTFALL_ANOMALY_MIN_TRAILING_DAYS = 4
 FOOTFALL_ANOMALY_FRACTION = 0.1
 
 
+# A day with this share fewer stations than the week before it is a day of
+# closures. Measured 7 October 2026: 433-434 stations on an ordinary day,
+# 418 on Saturday 26 September (96%), 315 on a strike day in September 2025
+# (73%), 48 on Christmas Day.
+FOOTFALL_MIN_STATION_SHARE = 0.95
+# A "Quietest" under half its own trailing average is a closure, not a quiet
+# station: Roding Valley at 124 against ~491 was posted on 4 October.
+FOOTFALL_QUIETEST_MIN_SHARE = 0.5
+
+
+def footfall_checks(rows, by_station_date, dates, footfall):
+    """The latest day of the footfall file (see london_index_provenance.py).
+    `footfall` is cleaned name -> taps for the day, after the data-gap guard."""
+    import statistics
+    pairs = [(r['TravelDate'], r['Station'].strip()) for r in rows]
+    require(len(set(pairs)) == len(pairs), 'footfall: a station appears twice on one day')
+    latest, trailing = dates[-1], dates[-8:-1]
+    count = lambda d: sum(1 for by in by_station_date.values() if d in by)
+    if trailing:
+        usual = statistics.median(count(d) for d in trailing)
+        require(count(latest) >= FOOTFALL_MIN_STATION_SHARE * usual,
+                f'footfall {latest}: {count(latest)} stations against {usual:.0f} usually')
+    raw = {_clean_footfall_name(s): by for s, by in by_station_date.items()}
+    name, taps = min(footfall.items(), key=lambda kv: kv[1])
+    hist = [raw[name][d] for d in trailing if d in raw.get(name, {})]
+    if len(hist) >= FOOTFALL_ANOMALY_MIN_TRAILING_DAYS:
+        avg = sum(hist) / len(hist)
+        require(taps >= FOOTFALL_QUIETEST_MIN_SHARE * avg,
+                f'footfall {latest}: quietest, {name}, {taps:,} against its own {avg:,.0f}')
+
+
 def harvest_daily_footfall():
     import csv
     from collections import defaultdict
@@ -2261,6 +2594,7 @@ def harvest_daily_footfall():
 
     if len(footfall) < 2:
         return [], f'fewer than 2 usable stations parsed for {latest} (after excluding likely data gaps)'
+    footfall_checks(rows, by_station_date, dates, footfall)
 
     date_obj = datetime.strptime(latest, '%Y%m%d')
     period_str = date_obj.strftime('%Y-%m-%d')
@@ -2335,6 +2669,32 @@ def stop_search_facts(records, ym, url):
             mk(weapons, 'For weapons')]
 
 
+# What "For weapons" would have to count beyond 'Offensive weapons': 39
+# firearms searches and 17 section 60 searches in July 2026.
+OTHER_WEAPON_OBJECTS = ('Firearms', 'Anything to threaten or harm anyone')
+
+
+def stop_search_checks(records, ym, no_location=None, dates=None):
+    """One month of the Met's searches (see london_index_provenance.py).
+    `no_location` (the stops-no-location list) and `dates` (crimes-street-
+    dates) are fetched when not given."""
+    if dates is None:
+        dates = get_json('https://data.police.uk/api/crimes-street-dates')
+    month = next((m for m in dates or [] if m.get('date') == ym), None)
+    require(month is not None and 'metropolitan' in (month.get('stop-and-search') or []),
+            f'data.police.uk does not list the Met as published for {ym}')
+    if no_location is None:
+        no_location = get_json(f'https://data.police.uk/api/stops-no-location?force=metropolitan&date={ym}')
+    require(isinstance(no_location, list), 'stops-no-location could not be read')
+    # stops-force carries the located and the unlocated alike: 39 of 12,088
+    # had no location in July 2026, and stops-no-location listed 39.
+    unlocated = sum(1 for r in records if r.get('location') is None)
+    require(unlocated == len(no_location),
+            f'{ym}: {unlocated} searches without a location, stops-no-location lists {len(no_location)}')
+    other = sum(1 for r in records if r.get('object_of_search') in OTHER_WEAPON_OBJECTS)
+    require(other == 0, f'{ym}: {other} firearms or section 60 searches left out of "For weapons"')
+
+
 def harvest_stop_search():
     this_month = datetime.now(timezone.utc).strftime('%Y-%m')
     for back in range(1, 5):
@@ -2344,6 +2704,7 @@ def harvest_stop_search():
         if isinstance(d, list) and len(d) >= 1000:
             # The Met records five figures of searches a month; a short
             # list is a month still being loaded, not a quiet month.
+            stop_search_checks(d, ym)
             return stop_search_facts(d, ym, url), None
     return [], 'no populated stop-and-search month in the last 4 tried'
 
@@ -2483,12 +2844,27 @@ def house_price_facts(london, boroughs, ym, url=HPI_PAGE):
     return facts
 
 
+def hpi_checks(ym, london, boroughs):
+    """Every record answers for the month and region it was asked for:
+    refMonth and refRegion are the record's own, so a slug that resolved to
+    another region, or a month served for another, is caught. True of all
+    34 on 7 October 2026."""
+    asked = [('london', london)] + [(HPI_BOROUGHS[n], r) for n, r in boroughs.items()]
+    for slug, rec in asked:
+        if rec is None:
+            continue
+        region = ((rec.get('refRegion') or {}).get('_about') or '')
+        require(rec.get('refMonth') == ym and region.endswith(f'/region/{slug}'),
+                f'UK HPI: asked for {slug} {ym}, got {region or "?"} {rec.get("refMonth")}')
+
+
 def harvest_house_prices():
     ym = _hpi_current_month()
     if ym is None:
         return [], 'no published UK HPI month for London in the last 5 tried'
     london = _hpi_month('london', ym)
     boroughs, failed = _hpi_boroughs(ym)
+    hpi_checks(ym, london, boroughs)
     return _hpi_noted(house_price_facts(london, boroughs, ym), failed, ym), None
 
 
@@ -2550,6 +2926,7 @@ def harvest_house_price_spotlight():
     boroughs, failed = _hpi_boroughs(ym)
     if not boroughs:
         return [], f'no borough answered for {ym}'
+    hpi_checks(ym, None, boroughs)
     name = spotlight_pick(list(boroughs), hp_spotlight_last_featured())
     return _hpi_noted(house_price_spotlight_facts(name, boroughs, ym), failed, ym), None
 
@@ -2578,10 +2955,29 @@ def road_facts(items, url=ROADS_PAGE):
             mk(works, 'Planned roadworks')]
 
 
+def road_checks(items, corridors=None):
+    """The disruption list (see london_index_provenance.py). `corridors` is
+    TfL's /Road list, fetched when not given."""
+    ids = [i.get('id') for i in items]
+    require(len(set(ids)) == len(ids), 'road disruptions: duplicate ids')
+    if corridors is None:
+        corridors = tfl_get_json('https://api.tfl.gov.uk/Road')
+    require(isinstance(corridors, list) and corridors, 'TfL /Road could not be read')
+    known = {c.get('id') for c in corridors}
+    unknown = sorted({c for i in items for c in (i.get('corridorIds') or []) if c not in known})
+    require(not unknown, f'road disruptions on corridors /Road does not list: {unknown}')
+    # The card says "TfL's red routes": a disruption on none of TfL's 24
+    # corridors is on a borough road. 55 of 115 on 7 October 2026, so this
+    # fails until the label or the count changes (why the vein is held).
+    off = sum(1 for i in items if not i.get('corridorIds'))
+    require(off == 0, f'{off} of {len(items)} disruptions are on no TfL corridor')
+
+
 def harvest_road_works():
     d = tfl_get_json(ROADS_URL)
     if not isinstance(d, list):
         return [], 'Road disruption fetch failed'
+    road_checks(d)
     return road_facts(d), None
 
 
@@ -2683,7 +3079,22 @@ def harvest_lfb_animals():
     rows = by_month[ym]
     if len(rows) < ANIMALS_MIN_ROWS:
         return [], f'only {len(rows)} animal rescues in {ym}; refusing a partial month'
+    animal_checks(rows, ym)
     return animal_facts(rows, ym), None
+
+
+def animal_checks(rows, ym):
+    """One month of the animal-rescue file. July 2026 fails two of these:
+    two rows read 'cat' (dropped from Cats, 114 shown of 116) and three
+    carry the string 'NULL' as cost (left out of the notional cost)."""
+    inc = [r.get('IncidentNumber') for r in rows]
+    require(len(set(inc)) == len(inc), f'animal rescues {ym}: an incident appears twice')
+    odd = sorted({str(r.get('AnimalGroupParent')) for r in rows
+                  if (r.get('AnimalGroupParent') or '').strip() not in ANIMAL_PLURALS
+                  and not str(r.get('AnimalGroupParent') or '').startswith('Unknown')})
+    require(not odd, f'animal rescues {ym}: groups the ranking would drop: {odd}')
+    costless = sum(1 for r in rows if not isinstance(r.get('IncidentNotionalCost(£)'), (int, float)))
+    require(costless == 0, f'animal rescues {ym}: {costless} incident(s) with no numeric cost')
 
 
 
@@ -3079,6 +3490,30 @@ def station_facts(name, services, url=RAIL_PAGE):
     return facts
 
 
+RAIL_NUM_ROWS = 150   # numRows in RAIL_API: a board this long may be cut off
+
+
+def rail_board_checks(boards):
+    """No board reached numRows, so none was cut off: 81 at most across the
+    13 at 13:30 BST on 7 October 2026, 536 summed at the busiest reading on
+    file."""
+    full = sorted(n for n, s in boards.items() if len(s) >= RAIL_NUM_ROWS)
+    require(not full, f'departure boards at the {RAIL_NUM_ROWS}-row cap: {full}')
+
+
+def rail_origin_checks(boards):
+    """A train that starts at one of the 13 and calls at another is on both
+    boards, so the summed total counts it twice: 35 such services at 13:30
+    BST on 7 October 2026 (Charing Cross and Cannon Street trains through
+    London Bridge, Elizabeth line trains from Paddington at Liverpool
+    Street). Fails until the total counts distinct trains (why it is held)."""
+    crs_of = dict(RAIL_TERMINI)
+    twice = sum(1 for name, services in boards.items() for svc in services
+                for o in (svc.get('origin') or [])
+                if o.get('crs') in set(crs_of.values()) - {crs_of.get(name)})
+    require(twice == 0, f'{twice} departures start at another of the {len(RAIL_TERMINI)} stations')
+
+
 def harvest_rail_station():
     boards, failed, err = _rail_boards()
     if err:
@@ -3088,6 +3523,7 @@ def harvest_rail_station():
         return [], (f'no station has {STATION_MIN_DEPARTURES} departures due; '
                     f'boards too quiet for a station card')
     name = spotlight_pick(candidates, last_featured(STATION_OPENER_PREFIX, RAIL_TERMINI))
+    rail_board_checks({name: boards[name]})
     return station_facts(name, boards[name]), None
 
 
@@ -3100,6 +3536,8 @@ def harvest_rail_departures():
     total = sum(len(v) for v in boards.values())
     if total < RAIL_MIN_DEPARTURES:
         return [], f'only {total} departures due across the termini; boards too quiet for a card'
+    rail_board_checks(boards)
+    rail_origin_checks(boards)
     now = datetime.now(LONDON_TZ)
     facts = rail_facts(boards, baseline_total=rail_baseline(now=now),
                        baseline_on_time_share=rail_baseline_on_time_share(now=now), now=now)
@@ -3155,28 +3593,44 @@ def _csv_rows(text):
     return rows
 
 
-def _harvest_csv(url, facts_fn, label):
+def _harvest_csv(url, facts_fn, label, check=None):
     """Download `url` as CSV and hand its rows to `facts_fn`, the shared
-    shape behind the Datastore CSV harvesters below."""
+    shape behind the Datastore CSV harvesters below. `check(rows)`, when
+    given, runs first: its SourceCheckFailed withholds the vein."""
     text = _download_text(url)
     if not text:
         return [], f'{label} download failed'
     try:
-        return facts_fn(_csv_rows(text)), None
+        rows = _csv_rows(text)
+        facts = facts_fn(rows)
     except ValueError as e:
         return [], str(e)
+    if check:
+        check(rows)
+    return facts, None
 
 
-def _harvest_xlsx(url, facts_fn, label, sheet=None):
+def _harvest_xlsx(url, facts_fn, label, sheet=None, check=None):
     """Download `url` as XLSX and hand one sheet's rows to `facts_fn`, the
-    shared shape behind the Datastore XLSX harvesters below."""
+    shared shape behind the Datastore XLSX harvesters below. `check(rows)`
+    as in _harvest_csv."""
     rows = _download_xlsx_rows(url, sheet=sheet)
     if not rows:
         return [], f'{label} download failed'
     try:
-        return facts_fn(rows), None
+        facts = facts_fn(rows)
     except ValueError as e:
         return [], str(e)
+    if check:
+        check(rows)
+    return facts, None
+
+
+def _contiguous_months(yms, what):
+    """Every 'YYYY-MM' once, none missing between the first and the last."""
+    idx = sorted(int(m[:4]) * 12 + int(m[5:7]) for m in yms)
+    require(len(set(idx)) == len(idx), f'{what}: a month appears twice')
+    require(idx and idx[-1] - idx[0] + 1 == len(idx), f'{what}: a month is missing')
 
 
 def _month_label(s):
@@ -3239,8 +3693,27 @@ def reservoir_facts(rows, url=RESERVOIR_PAGE):
     return facts
 
 
+def reservoir_checks(rows):
+    """Every data row's date reads as the file's own dd-Mon-yy, and no date
+    twice. Fails on 7 October 2026: 122 rows, 1 June 2020 to 30 September
+    2021, are dd/mm/yyyy and are silently dropped, which moves the 31 August
+    all-years average (why the vein is held). The 15 'n/a' and '---' levels
+    are not dates and are left out by design."""
+    seen, unread = set(), []
+    for r in rows[1:]:
+        try:
+            day = _day_label(r[0])
+        except (ValueError, IndexError):
+            unread.append(r[0] if r else '')
+            continue
+        require(day not in seen, f'reservoirs: {day} appears twice')
+        seen.add(day)
+    require(not unread, f'reservoirs: {len(unread)} row(s) whose date does not read, '
+            f'from {unread[0]!r}' if unread else '')
+
+
 def harvest_reservoirs():
-    return _harvest_csv(RESERVOIR_URL, reservoir_facts, 'reservoir levels')
+    return _harvest_csv(RESERVOIR_URL, reservoir_facts, 'reservoir levels', check=reservoir_checks)
 
 
 # 2. TfL journeys by mode, per four-week reporting period.
@@ -3300,8 +3773,40 @@ def journey_facts(rows, url=JOURNEYS_PAGE):
     return facts
 
 
+def journey_checks(rows):
+    """TfL's reporting periods (see london_index_provenance.py): one row a
+    period, each beginning the day after the last ended (213 periods, no
+    break, 7 October 2026); the newest 28 days, since the card says "Four
+    weeks" (periods 1 and 13 run 25 to 32); and the year-earlier period the
+    same period number and length, or the change compares unlike spans
+    (period 1 of 2026/27 is 32 days, of 2025/26 26)."""
+    header = [c.strip() for c in rows[0]]
+    require('Reporting Period' in header, 'journeys: no Reporting Period column')
+    bi, ei, pi = (header.index(n) for n in ('Period beginning', 'Period ending', 'Reporting Period'))
+    periods = []
+    for r in rows[1:]:
+        try:
+            periods.append((datetime.strptime(_day_label(r[ei]), '%Y-%m-%d'),
+                            datetime.strptime(_day_label(r[bi]), '%Y-%m-%d'), r[pi].strip()))
+        except (ValueError, IndexError):
+            continue
+    periods.sort()
+    ends = [p[0] for p in periods]
+    require(len(set(ends)) == len(ends), 'journeys: a period appears twice')
+    breaks = sum(1 for a, b in zip(periods, periods[1:]) if b[1] - a[0] != timedelta(days=1))
+    require(breaks == 0, f'journeys: {breaks} break(s) between consecutive periods')
+    days = lambda p: (p[0] - p[1]).days + 1
+    newest = periods[-1]
+    require(days(newest) == 28, f'journeys: newest period is {days(newest)} days, not four weeks')
+    if len(periods) > PERIODS_PER_YEAR:
+        before = periods[-1 - PERIODS_PER_YEAR]
+        require(before[2] == newest[2] and days(before) == days(newest),
+                f'journeys: year-earlier period is P{before[2]}, {days(before)} days, '
+                f'against P{newest[2]}, {days(newest)} days')
+
+
 def harvest_tfl_journeys():
-    return _harvest_csv(JOURNEYS_URL, journey_facts, 'TfL journeys')
+    return _harvest_csv(JOURNEYS_URL, journey_facts, 'TfL journeys', check=journey_checks)
 
 
 # 3. Congestion Charge zone: vehicles seen in charging hours, monthly.
@@ -3342,8 +3847,33 @@ def congestion_facts(rows, url=CCZ_PAGE):
     return facts
 
 
+def congestion_checks(rows):
+    """The months the card reads, the newest and the one a year before it:
+    confirmed vehicles are a validated subset of camera captures, so never
+    more (true of 116 of 117 months; May 2026, 2,784,653 confirmed against
+    2,564,414 captures, is the one that is not), and no month has more
+    charging days than days."""
+    import calendar
+    months = {}
+    for r in rows[1:]:
+        try:
+            months[_month_label(r[0])] = (_num(r[1]), _num(r[2]) if r[2].strip() else None,
+                                          _num(r[3]) if r[3].strip() else None)
+        except (ValueError, IndexError):
+            continue
+    ym = max(m for m, v in months.items() if v[1])
+    for m in (ym, _shift_month(ym, 12)):
+        if m not in months or not months[m][1]:
+            continue
+        cap, con, days = months[m]
+        require(con <= cap, f'Congestion Charge {m}: {con:,.0f} confirmed against {cap:,.0f} captures')
+        y, mo = (int(x) for x in m.split('-'))
+        require(days is None or days <= calendar.monthrange(y, mo)[1],
+                f'Congestion Charge {m}: {days:.0f} charging days')
+
+
 def harvest_congestion_charge():
-    return _harvest_csv(CCZ_URL, congestion_facts, 'Congestion Charge')
+    return _harvest_csv(CCZ_URL, congestion_facts, 'Congestion Charge', check=congestion_checks)
 
 
 # 4. Police force strength, monthly, full-time equivalents.
@@ -3378,8 +3908,20 @@ def strength_facts(rows, url=STRENGTH_PAGE):
     return facts
 
 
+def strength_checks(rows):
+    """One row a month, none missing: 159 months, May 2013 to July 2026, on
+    7 October 2026. The year-on-year line reads the row twelve back."""
+    yms = []
+    for r in rows[1:]:
+        try:
+            yms.append(_month_label(r[0]))
+        except (ValueError, IndexError):
+            continue
+    _contiguous_months(yms, 'police strength')
+
+
 def harvest_police_strength():
-    return _harvest_csv(STRENGTH_URL, strength_facts, 'police strength')
+    return _harvest_csv(STRENGTH_URL, strength_facts, 'police strength', check=strength_checks)
 
 
 # 5. Arrests by the Metropolitan Police, monthly, from the custody dashboard.
@@ -3434,8 +3976,41 @@ def arrests_facts(rows, url=ARRESTS_PAGE):
     return facts
 
 
+def arrests_checks(rows):
+    """The custody sheet (see london_index_provenance.py): every month from
+    January 2022 present, no row's dimensions twice (17,941 rows, 0
+    duplicates, 7 October 2026), and the "Most common offence" line true:
+    the named offence it shows must outnumber the unnamed "Other Offence"
+    bucket. August 2026: Other Offence 4,979, Assault 2,068, so this fails
+    until the label changes (why the vein is held)."""
+    header = [str(c).strip() for c in rows[0]]
+    yi, mi, oi, ci = (header.index(n) for n in
+                      ('Arrest Year', 'Arrest Month', 'First Arrest Offence', 'Arrest Count'))
+    keys, offences, yms = set(), {}, set()
+    for r in rows[1:]:
+        try:
+            ym = f'{int(r[yi]):04d}-{int(r[mi]):02d}'
+            n = int(r[ci])
+        except (TypeError, ValueError, IndexError):
+            continue
+        key = tuple(r[:ci]) + tuple(r[ci + 1:])
+        require(key not in keys, f'arrests: a row repeats its dimensions ({ym})')
+        keys.add(key)
+        yms.add(ym)
+        off = offences.setdefault(ym, {})
+        off[str(r[oi]).strip()] = off.get(str(r[oi]).strip(), 0) + n
+    _contiguous_months(yms, 'arrests')
+    latest = offences[max(yms)]
+    named = {k: v for k, v in latest.items() if not k.lower().startswith('other')}
+    other = sum(v for k, v in latest.items() if k.lower().startswith('other'))
+    if named:
+        top = max(named.items(), key=lambda kv: kv[1])
+        require(top[1] >= other, f'arrests {max(yms)}: "Most common offence: {top[0]}" ({top[1]:,}) '
+                f'is outnumbered by Other Offence ({other:,})')
+
+
 def harvest_arrests():
-    return _harvest_xlsx(ARRESTS_URL, arrests_facts, 'arrests', sheet='Arrests')
+    return _harvest_xlsx(ARRESTS_URL, arrests_facts, 'arrests', sheet='Arrests', check=arrests_checks)
 
 
 # 6. Unemployment, London against the UK, rolling quarter (ONS via the GLA).
@@ -3489,8 +4064,51 @@ def _rate_change(now, before):
     return f'+{d:.1f} points' if d > 0.05 else f'−{abs(d):.1f} points' if d < -0.05 else 'unchanged'
 
 
+ONS_SERIES_URL = ('https://www.ons.gov.uk/employmentandlabourmarket/peoplenotinwork/'
+                  'unemployment/timeseries/{series}/lms/data')
+# The GLA sheet's newest quarter against the ONS's own series for the same
+# quarter: YCNI (London rate) and MGSX (UK rate). Measured 7 October 2026
+# over the 24 quarters to May-July 2026: London 0.05% apart on the newest,
+# 5.4% at most (the GLA keeps the rate as first published, the ONS revises);
+# UK 0.1% on the newest, 2.7% at most.
+ONS_LONDON_TOLERANCE = 0.06
+ONS_UK_TOLERANCE = 0.03
+_MON = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC']
+
+
+def ons_middle_month(label):
+    """'May-Jul 2026' -> '2026 JUN', the ONS's own name for a rolling
+    quarter (it labels one by its middle month); 'Nov-Jan 2026' -> '2025 DEC'."""
+    m = re.fullmatch(r'([A-Z][a-z]{2})-([A-Z][a-z]{2}) (\d{4})', label.strip())
+    require(m is not None, f'unemployment: unexpected quarter label {label!r}')
+    first, last, year = _MON.index(m.group(1).upper()), _MON.index(m.group(2).upper()), int(m.group(3))
+    mid = (first + 1) % 12
+    return f'{year if last >= mid else year - 1} {_MON[mid]}'
+
+
+def unemployment_checks(rows, ons=None):
+    """`ons` maps series id -> its ONS JSON, fetched when not given."""
+    newest = None
+    for r in rows:
+        if r and isinstance(r[0], str) and re.fullmatch(r'[A-Z][a-z]{2}-[A-Z][a-z]{2} \d{4}', r[0].strip()):
+            try:
+                newest = (r[0].strip(), float(r[2]), float(r[5]))
+            except (TypeError, ValueError, IndexError):
+                continue
+    require(newest is not None, 'unemployment: no quarter parsed')
+    label, london, uk = newest
+    date = ons_middle_month(label)
+    ons = ons if ons is not None else {s: get_json(ONS_SERIES_URL.format(series=s)) for s in ('ycni', 'mgsx')}
+    for series, ours, tol, what in (('ycni', london, ONS_LONDON_TOLERANCE, 'London'),
+                                    ('mgsx', uk, ONS_UK_TOLERANCE, 'UK')):
+        months = (ons.get(series) or {}).get('months') or []
+        theirs = next((float(m['value']) for m in months if m.get('date') == date), None)
+        reconcile(f'{what} unemployment rate {label} against ONS {series.upper()}', ours, theirs, tol)
+
+
 def harvest_unemployment():
-    return _harvest_xlsx(UNEMPLOYMENT_URL, unemployment_facts, 'unemployment', sheet='Long-term trend')
+    return _harvest_xlsx(UNEMPLOYMENT_URL, unemployment_facts, 'unemployment', sheet='Long-term trend',
+                         check=unemployment_checks)
 
 
 # 7. People freed from lifts by the fire brigade, monthly.
@@ -3546,6 +4164,23 @@ def _call_time(when):
     return when if isinstance(when, datetime) else None
 
 
+def lift_checks(header, data, by_month, ym):
+    """The 36-month lift file (see london_index_provenance.py): every
+    incident once, every month present, the newest month running to its
+    last day (27 releases a day on average). All true on 7 October 2026:
+    20,615 incidents, August 2023 to July 2026, last call 31 July at 23:44."""
+    i = header.index('IncidentNumber') if 'IncidentNumber' in header else None
+    require(i is not None, 'lift releases: no IncidentNumber column')
+    inc = [r[i] for r in data]
+    require(len(set(inc)) == len(inc), 'lift releases: an incident appears twice')
+    idx = sorted(int(m[:4]) * 12 + int(m[5:]) for m in by_month)
+    require(idx[-1] - idx[0] + 1 == len(idx), 'lift releases: a month is missing')
+    y, m = (int(x) for x in ym.split('-'))
+    last_day = (datetime(y + (m == 12), m % 12 + 1, 1) - timedelta(days=1)).day
+    newest = max(_call_time(r.get('DateTimeOfCall')) for r in by_month[ym])
+    require(newest.day == last_day, f'lift releases {ym}: the last call is on {newest:%d %B}')
+
+
 def harvest_lift_releases():
     rows = _download_xlsx_rows(LIFTS_URL)
     if not rows:
@@ -3567,6 +4202,7 @@ def harvest_lift_releases():
     ym = months[-1]
     if len(by_month[ym]) < ANIMALS_MIN_ROWS:
         return [], f'only {len(by_month[ym])} lift releases in {ym}; refusing a partial month'
+    lift_checks(header, rows[1:], by_month, ym)
     return lifts_facts(by_month[ym], ym, prev_rows=by_month.get(_shift_month(ym, 12))), None
 
 
@@ -3678,6 +4314,20 @@ def lfb_facts(m, ym, prev=None, url=LFB_PAGE):
     return facts
 
 
+# Incidents in none of Fire, False Alarm and Special Service (the file's
+# 'NULL' group): 0.2% of a month at most, January 2024 to July 2026.
+LFB_UNGROUPED_MAX = 0.005
+
+
+def lfb_checks(m, ym):
+    """The three groups the card names account for the month's incidents:
+    a renamed or new IncidentGroup would leave its incidents in the total
+    and out of every line beneath it."""
+    ungrouped = m['total'] - m['fires'] - m['false_alarms'] - m['special']
+    require(0 <= ungrouped <= LFB_UNGROUPED_MAX * m['total'],
+            f'LFB {ym}: {ungrouped:,} of {m["total"]:,} incidents in no named group')
+
+
 def harvest_lfb_incidents():
     months = lfb_months()
     this_month = datetime.now(timezone.utc).strftime('%Y-%m')
@@ -3687,6 +4337,7 @@ def harvest_lfb_incidents():
     ym = complete[-1]
     if months[ym]['total'] < 1000:
         return [], f'only {months[ym]["total"]} LFB incidents in {ym}; refusing a partial month'
+    lfb_checks(months[ym], ym)
     return lfb_facts(months[ym], ym, prev=months.get(_shift_month(ym, 12))), None
 
 
@@ -3828,9 +4479,28 @@ def harvest_events():
     # about ten more calls. An incomplete page set drops these shapes rather
     # than ranking venues from part of a week.
     listings, complete = _tm_listings(key, start, week_end)
+    events_checks(counts, listings, complete)
     if complete and listings:
         facts += events_listing_facts(listings)
     return facts, None
+
+
+def events_checks(counts, listings, complete):
+    """Ticketmaster's totals against the week's listings, pulled page by page
+    (see london_index_provenance.py). 7 October 2026: 1,270 listings, 1,270
+    unique ids, total 1,270, every segment's listings equal to its total."""
+    require(complete, 'Ticketmaster: a page of the week\'s listings failed')
+    ids = [e.get('id') for e in listings]
+    require(len(set(ids)) == len(ids), 'Ticketmaster: a listing appears twice')
+    require(len(listings) == counts['week'],
+            f'Ticketmaster: {len(listings):,} listings pulled, total says {counts["week"]:,}')
+    for seg, n in counts.get('segments', {}).items():
+        got = sum(1 for e in listings
+                  if (e.get('classifications') or [{}])[0].get('segment', {}).get('name') == seg)
+        require(got == n, f'Ticketmaster {seg}: {got} listings pulled, total says {n}')
+    windows = [counts.get('day'), counts['week'], counts.get('month')]
+    shown = [w for w in windows if w is not None]
+    require(shown == sorted(shown), f'Ticketmaster: 24 hours, 7 days, 30 days read {windows}')
 
 
 # --- The West End's year: SOLT and UK Theatre's annual report ---------------
@@ -4067,15 +4737,31 @@ def harvest_west_end_shows():
     parsed = parse_solt_shows(html)
     if not parsed:
         return [], 'SOLT longest-running productions list not found or not well formed (page changed?)'
+    solt_checks(parsed)
     return solt_show_facts(parsed), None
+
+
+# A ranking older than this is a ranking of who was there then: by October
+# 2026 "The Book of Mormon" (4,345 or more) had likely passed the list's
+# 19th and 20th rows (4,344 and 4,264), supplied in January 2025.
+SOLT_MAX_AGE_MONTHS = 12
+
+
+def solt_checks(parsed, now=None):
+    """The list's own "supplied in" month is within SOLT_MAX_AGE_MONTHS.
+    Fails on 7 October 2026 (January 2025, 21 months): why the vein is held."""
+    now = now or datetime.now(timezone.utc)
+    y, m = (int(x) for x in parsed['period'].split('-'))
+    age = (now.year * 12 + now.month) - (y * 12 + m)
+    require(age <= SOLT_MAX_AGE_MONTHS,
+            f'SOLT list supplied {parsed["period"]}, {age} months ago (limit {SOLT_MAX_AGE_MONTHS})')
 
 
 def harvest_west_end():
     year = max(WEST_END_REPORTS)
     newer = _west_end_newer_report(year)
-    if newer:
-        return [], (f'a newer report exists at {newer}; transcribe it into '
-                    f'WEST_END_REPORTS before the {year} figures post again')
+    require(not newer, f'a newer report exists at {newer}; transcribe it into '
+            f'WEST_END_REPORTS before the {year} figures post again')
     return west_end_facts(year, WEST_END_REPORTS[year]), None
 
 
@@ -4251,7 +4937,24 @@ def harvest_london_cinema(cache_path=BFI_CACHE, fetch=_bfi_fetch_row, now=None):
             return [], err
         else:
             print(f'london_cinema: {err}; using the cached {cache["year"]} row', file=sys.stderr)
+    cinema_checks(cache['row'])
     return cinema_facts(cache['row'], cache['year']), None
+
+
+# Greater London's population as the ONS counts it, the area "London's
+# cinemas" names: 8.9 million in the same yearbook's Table 2. The row read
+# is ITV's London region, 13.6 million.
+GREATER_LONDON_MILLIONS = (8, 10)
+
+
+def cinema_checks(row):
+    """The row counts Greater London, not a wider region. Fails on
+    7 October 2026 (Table 1's London is 13.6 million people): why the vein
+    is held."""
+    pop = row.get('Population (million)')
+    lo, hi = GREATER_LONDON_MILLIONS
+    require(pop is not None and lo <= pop <= hi,
+            f'BFI row covers {pop} million people, not Greater London')
 
 
 HARVESTERS = {

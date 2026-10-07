@@ -897,6 +897,7 @@ class StationAndGaugeSpotlights(unittest.TestCase):
     def test_gauge_rotation_picks_least_recent_gauge(self):
         readings = [(n, 1.0, 0.5, 2.0, 33.3, 'w') for n in H.RIVER_STATIONS]
         with unittest.mock.patch.object(H, '_river_readings', return_value=(readings, [])), \
+             unittest.mock.patch.object(H, 'river_checks', lambda r: None), \
              unittest.mock.patch.object(H, 'last_featured', return_value={n: '2026-09-01' for n in list(H.RIVER_STATIONS)[1:]}):
             facts, err = H.harvest_river_gauge()
         self.assertIsNone(err)
@@ -1475,10 +1476,10 @@ class WestEnd(unittest.TestCase):
         self.assertEqual(H._west_end_newer_report('2025', exists=lambda u: u.endswith('-2027/')),
                          'https://uktheatre.org/theatre-in-the-uk-2027/')
         self.assertIsNone(H._west_end_newer_report('2025', exists=lambda u: False))
-        with unittest.mock.patch.object(H, '_url_exists', lambda u: True):
-            facts, err = H.harvest_west_end()
-        self.assertEqual(facts, [])
-        self.assertIn('theatre-in-the-uk-2027', err)
+        # A source check since 7 October 2026, so build_pool() files it.
+        with unittest.mock.patch.object(H, '_url_exists', lambda u: True), \
+             self.assertRaisesRegex(H.SourceCheckFailed, 'theatre-in-the-uk-2027'):
+            H.harvest_west_end()
         with unittest.mock.patch.object(H, '_url_exists', lambda u: False):
             facts, err = H.harvest_west_end()
         self.assertIsNone(err)
@@ -1552,6 +1553,9 @@ class LondonCinema(unittest.TestCase):
     def test_harvest_caches_for_a_week_and_keeps_the_cache_on_a_failed_fetch(self):
         from datetime import datetime, timezone
         row, year = H.bfi_london_row(self.table())
+        # The ITV-region row fails cinema_checks (why the vein is held); this
+        # test is about the cache, so the check stands aside.
+        self.enterContext(unittest.mock.patch.object(H, 'cinema_checks', lambda row: None))
         with tempfile.TemporaryDirectory() as td:
             cache = Path(td) / 'bfi.json'
             t0 = datetime(2026, 9, 19, tzinfo=timezone.utc)
@@ -1722,6 +1726,438 @@ class TitleWordsAreNotRepeated(unittest.TestCase):
     def test_under_a_title_not_naming_it(self):
         self.assertEqual(self.labels('London, right now'),
                          ['Readings above "Low" air quality', 'Boroughs with a monitor'])
+
+
+
+# --- Source checks, 7 October 2026 --------------------------------------------
+# Every check london_index_provenance.py lists as 'build', on synthetic data
+# shaped like the feed it reads: each passes on a clean feed and raises
+# SourceCheckFailed on the fault it exists for. No network.
+from datetime import datetime, timezone  # noqa: E402
+
+Fail = H.SourceCheckFailed
+
+
+class BikesChecks(unittest.TestCase):
+    def points(self, n=3, bikes=5, docks=10):
+        return [{'id': f'BikePoints_{i}', 'additionalProperties': [
+            {'key': 'NbBikes', 'value': str(bikes)}, {'key': 'NbStandardBikes', 'value': str(bikes - 1)},
+            {'key': 'NbEBikes', 'value': '1'}, {'key': 'NbDocks', 'value': str(docks)}]} for i in range(n)]
+
+    def prop(self, bp, key):
+        return next((a['value'] for a in bp['additionalProperties'] if a['key'] == key), None)
+
+    def xml(self, stations=3, bikes=5, docks=10):
+        return '<stations>' + ''.join(f'<station><nbBikes>{bikes}</nbBikes><nbDocks>{docks}</nbDocks></station>'
+                                      for _ in range(stations)) + '</stations>'
+
+    def test_matching_feeds_pass(self):
+        H.bikes_checks(self.points(), self.prop, 15, 30, xml_text=self.xml())
+
+    def test_bikes_moving_between_fetches_are_tolerated_docks_are_not(self):
+        pts = self.points(n=100, bikes=5)
+        H.bikes_checks(pts, self.prop, 500, 1000, xml_text=self.xml(100, 5, 10))
+        H.bikes_checks(pts, self.prop, 504, 1000, xml_text=self.xml(100, 5, 10))   # 0.8% apart
+        with self.assertRaises(Fail):   # 500 against 600: 17%
+            H.bikes_checks(pts, self.prop, 500, 1000, xml_text=self.xml(100, 6, 10))
+        with self.assertRaises(Fail):
+            H.bikes_checks(pts, self.prop, 500, 1000, xml_text=self.xml(100, 5, 11))
+
+    def test_duplicate_ids_a_wrong_split_and_an_unreadable_xml_fail(self):
+        pts = self.points(); pts[1]['id'] = pts[0]['id']
+        with self.assertRaises(Fail):
+            H.bikes_checks(pts, self.prop, 15, 30, xml_text=self.xml())
+        pts = self.points(); pts[0]['additionalProperties'][2]['value'] = '3'
+        with self.assertRaises(Fail):
+            H.bikes_checks(pts, self.prop, 15, 30, xml_text=self.xml())
+        with self.assertRaises(Fail):
+            H.bikes_checks(self.points(), self.prop, 15, 30, xml_text='not xml')
+
+
+class FloodChecks(unittest.TestCase):
+    def test_the_filter_agrees_with_the_national_list(self):
+        london = [{'floodArea': {'county': 'Greater London, Surrey'}}]
+        every = london + [{'floodArea': {'county': 'Norfolk'}}]
+        H.flood_checks(london, every)
+        with self.assertRaises(Fail):
+            H.flood_checks([], every)
+
+
+class RiverChecks(unittest.TestCase):
+    NOW = datetime(2026, 10, 7, 12, 23, tzinfo=timezone.utc)
+
+    def setUp(self):
+        H._RIVER_MEMO.clear()
+        H._RIVER_MEMO['measures'] = {'Roding at Wanstead': 'http://x/measures/5480TH-level-stage-i-15_min-mASD'}
+        self.addCleanup(H._RIVER_MEMO.clear)
+
+    def test_fresh_stage_reading_passes_a_stale_one_fails(self):
+        H.river_checks(('Roding at Wanstead', 0.1, 0, 1, 10, '2026-10-07T12:00:00Z'), now=self.NOW)
+        with self.assertRaisesRegex(Fail, 'old'):
+            H.river_checks(('Roding at Wanstead', 0.1, 0, 1, 10, '2026-10-07T10:00:00Z'), now=self.NOW)
+
+    def test_a_reading_in_another_unit_fails(self):
+        H._RIVER_MEMO['measures']['Roding at Wanstead'] = 'http://x/measures/5480TH-flow--i-15_min-m3_s'
+        with self.assertRaisesRegex(Fail, 'mASD'):
+            H.river_checks(('Roding at Wanstead', 0.1, 0, 1, 10, '2026-10-07T12:00:00Z'), now=self.NOW)
+
+
+class CentralChecks(unittest.TestCase):
+    def recs(self, n, cat='burglary', first=0):
+        return [{'id': first + i, 'month': '2026-08', 'category': cat} for i in range(n)]
+
+    def test_clean_month_passes(self):
+        H.central_checks(self.recs(1000), '2026-08', 51.5, -0.13, poly=self.recs(998))
+
+    def test_asb_the_polygon_and_the_month_each_fail(self):
+        with self.assertRaisesRegex(Fail, 'anti-social'):
+            H.central_checks(self.recs(1000) + self.recs(1, 'anti-social-behaviour', first=5000), '2026-08', 51.5, -0.13,
+                             poly=self.recs(1001))
+        with self.assertRaisesRegex(Fail, 'polygon'):
+            H.central_checks(self.recs(1000), '2026-08', 51.5, -0.13, poly=self.recs(900))
+        with self.assertRaises(Fail):
+            H.central_checks(self.recs(10), '2026-07', 51.5, -0.13, poly=self.recs(10))
+
+    def test_mile_ring_is_a_mile_from_the_centre(self):
+        import math
+        for lon, lat in H.mile_ring(51.5074, -0.1278):
+            d = math.hypot((lat - 51.5074) * 111320, (lon + 0.1278) * 111320 * math.cos(math.radians(51.5074)))
+            self.assertAlmostEqual(d, 1609.344, delta=1)
+
+
+class MetDashboardChecks(unittest.TestCase):
+    def test_parse_keeps_borough_and_neighbourhood_totals(self):
+        p = H.mps_parse(MetDashboardAndLfb.CSV)
+        # Borough rows 1200+900+99+7 (Positive Outcomes left out); SNT 300.
+        self.assertEqual(p['checks']['2026-08'], {'borough_all': 2206, 'snt': 300})
+
+    def test_source_checks(self):
+        boroughs = {n: 1 for n in H.ALL_BOROUGHS if n != 'City of London'}
+        with tempfile.TemporaryDirectory() as td:
+            cache = Path(td) / 'mps.json'
+            cache.write_text('{"checks": {"2026-08": {"borough_all": 78647, "snt": 78647}}}')
+            H.mps_source_checks('2026-08', boroughs, cache_path=cache)
+            with self.assertRaisesRegex(Fail, 'missing'):
+                H.mps_source_checks('2026-08', dict(list(boroughs.items())[1:]), cache_path=cache)
+            with self.assertRaisesRegex(Fail, 'no borough'):
+                H.mps_source_checks('2026-07', boroughs, cache_path=cache)
+            cache.write_text('{"checks": {"2026-08": {"borough_all": 78647, "snt": 78600}}}')
+            with self.assertRaisesRegex(Fail, 'Safer Neighbourhood'):
+                H.mps_source_checks('2026-08', boroughs, cache_path=cache)
+
+    def test_a_cache_without_check_totals_is_read_again_once_a_day(self):
+        now = datetime(2026, 10, 7, tzinfo=timezone.utc)
+        old = {'months': {'2026-08': {}}, 'fetched': '2026-09-12T04:21:35+00:00'}
+        self.assertTrue(H._lacks_checks(old, now))
+        self.assertFalse(H._lacks_checks(dict(old, fetched=now.isoformat()), now))
+        self.assertFalse(H._lacks_checks(dict(old, checks={}), now))
+
+
+class CycleHireChecks(unittest.TestCase):
+    def sheet(self):
+        d0 = datetime(2026, 7, 30)
+        days = [(d0 + timedelta(days=i), 100 + i) for i in range(4)]   # 30 Jul to 2 Aug
+        rows = [(None, 'Daily Grand Total', 406), (None, 'Day', 'Number')]
+        months = [(datetime(2026, 7, 1), 201), (datetime(2026, 8, 1), 205)]
+        for i, (d, n) in enumerate(days):
+            m = months[i] if i < 2 else (None, None)
+            y = (2026, 406) if i == 0 else (None, None)
+            rows.append((None, d, n, None, m[0], m[1], None, y[0], y[1]))
+        return rows
+
+    def daily(self, sheet):
+        return sorted([r for r in sheet if isinstance(r[1], datetime)], key=lambda r: r[1])
+
+    def test_consistent_sheet_passes(self):
+        s = self.sheet(); H.cycle_hire_checks(s, self.daily(s))
+
+    def test_a_month_that_does_not_sum_and_a_missing_day_fail(self):
+        s = self.sheet(); s[2] = s[2][:5] + (999,) + s[2][6:]
+        with self.assertRaisesRegex(Fail, 'monthly'):
+            H.cycle_hire_checks(s, self.daily(s))
+        s = self.sheet(); del s[3]
+        with self.assertRaisesRegex(Fail, 'gap'):
+            H.cycle_hire_checks(s, self.daily(s))
+
+
+class LaqnChecks(unittest.TestCase):
+    def la(self, name, band, idx='2', code=None):
+        return {'@LocalAuthorityName': name, 'Site': {'@SiteCode': code or name, '@BulletinDate': '2026-10-07 11:00:00',
+                'Species': [{'@AirQualityBand': band, '@AirQualityIndex': idx}]}}
+
+    def sites(self, n):
+        return {'Sites': {'Site': [{'@SiteCode': str(i)} for i in range(n)]}}
+
+    def test_every_listed_borough_reporting_passes(self):
+        las = [self.la('A', 'Low', '3'), self.la('B', 'Low', '2')]
+        H.laqn_checks(las, [(3, 'A', 'x', 'Low'), (2, 'B', 'x', 'Low')], sites_doc=self.sites(2))
+
+    def test_a_listed_borough_with_no_reading_and_a_tie_fail(self):
+        las = [self.la('A', 'Low'), self.la('B', 'No data')]
+        with self.assertRaisesRegex(Fail, 'reporting'):
+            H.laqn_checks(las, [(2, 'A', 'x', 'Low')], sites_doc=self.sites(2))
+        las = [self.la('A', 'Low'), self.la('B', 'Low')]
+        with self.assertRaisesRegex(Fail, 'tie'):
+            H.laqn_checks(las, [(2, 'A', 'x', 'Low'), (2, 'B', 'x', 'Low')], sites_doc=self.sites(2))
+        with self.assertRaisesRegex(Fail, 'open sites'):
+            H.laqn_checks(las, [(3, 'A', 'x', 'Low')], sites_doc=self.sites(40))
+
+
+class DcmsTable1Checks(unittest.TestCase):
+    def frame(self, total=37_338_000, extra=None):
+        import pandas as pd
+        names = sorted(H.DCMS_TABLE1_ROWS - {'Total'})
+        rows = [['Name of museum or gallery', '2023/24', '2024/25']]
+        rows += [[n, 1.0, 1_000_000.0 if n in H.LONDON_DCMS_MUSEUMS else float('nan')] for n in names]
+        rows += [[n, 1.0, 1.0] for n in (extra or [])]
+        rows.append(['Total', 1.0, float(total)])
+        return pd.DataFrame(rows)
+
+    def test_rows_sum_to_the_rounded_total(self):
+        H.dcms_table1_checks(self.frame(13_000_400), 0)
+        with self.assertRaisesRegex(Fail, 'sum'):
+            H.dcms_table1_checks(self.frame(13_001_000), 0)
+
+    def test_a_new_row_fails(self):
+        with self.assertRaisesRegex(Fail, 'rows changed'):
+            H.dcms_table1_checks(self.frame(13_000_001, extra=['Museum of London']), 0)
+
+
+class StationUsageAndFootfallChecks(unittest.TestCase):
+    def test_a_station_shared_with_another_mode_fails(self):
+        facts = [H.fact('1', 'Busiest: Waterloo', 's', 'u'), H.fact('2', 'Paddington', 's', 'u')]
+        H.station_usage_checks(facts, {'Stratford'})
+        with self.assertRaisesRegex(Fail, 'Paddington'):
+            H.station_usage_checks(facts, {'Paddington'})
+
+    def footfall(self, latest_counts):
+        dates = [f'202609{d:02d}' for d in range(20, 28)]
+        rows, by = [], {}
+        for s in range(10):
+            for d in dates:
+                n = latest_counts.get(s, 500) if d == dates[-1] else 500
+                if n is None:
+                    continue
+                rows.append({'TravelDate': d, 'Station': f'S{s}'})
+                by.setdefault(f'S{s}', {})[d] = n
+        footfall = {f'S{s}': by[f'S{s}'][dates[-1]] for s in range(10) if dates[-1] in by[f'S{s}']}
+        return rows, by, dates, footfall
+
+    def test_footfall_ordinary_day_passes(self):
+        H.footfall_checks(*self.footfall({0: 300}))
+
+    def test_footfall_closures_fail(self):
+        with self.assertRaisesRegex(Fail, 'quietest'):
+            H.footfall_checks(*self.footfall({0: 200}))         # 40% of its own 500
+        with self.assertRaisesRegex(Fail, 'stations against'):
+            H.footfall_checks(*self.footfall({0: None}))        # 9 stations against 10
+        rows, by, dates, ff = self.footfall({})
+        with self.assertRaisesRegex(Fail, 'twice'):
+            H.footfall_checks(rows + rows[:1], by, dates, ff)
+
+
+class StopSearchChecks(unittest.TestCase):
+    DATES = [{'date': '2026-07', 'stop-and-search': ['metropolitan']}, {'date': '2026-08', 'stop-and-search': []}]
+
+    def recs(self, extra=None):
+        return [{'location': {'x': 1}, 'object_of_search': 'Controlled drugs'}] * 5 + \
+               [{'location': None, 'object_of_search': 'Offensive weapons'}] + (extra or [])
+
+    def test_clean_month_passes(self):
+        H.stop_search_checks(self.recs(), '2026-07', no_location=[{}], dates=self.DATES)
+
+    def test_each_fault_fails(self):
+        with self.assertRaisesRegex(Fail, 'does not list'):
+            H.stop_search_checks(self.recs(), '2026-08', no_location=[{}], dates=self.DATES)
+        with self.assertRaisesRegex(Fail, 'without a location'):
+            H.stop_search_checks(self.recs(), '2026-07', no_location=[], dates=self.DATES)
+        with self.assertRaisesRegex(Fail, 'For weapons'):
+            H.stop_search_checks(self.recs([{'location': {}, 'object_of_search': 'Firearms'}]), '2026-07',
+                                 no_location=[{}], dates=self.DATES)
+
+
+class HpiChecks(unittest.TestCase):
+    def rec(self, slug, ym='2026-07'):
+        return {'refMonth': ym, 'refRegion': {'_about': f'http://landregistry.data.gov.uk/id/region/{slug}'}}
+
+    def test_each_record_is_the_one_asked_for(self):
+        H.hpi_checks('2026-07', self.rec('london'), {'Westminster': self.rec('city-of-westminster')})
+        with self.assertRaises(Fail):
+            H.hpi_checks('2026-07', self.rec('london'), {'Westminster': self.rec('westminster')})
+        with self.assertRaises(Fail):
+            H.hpi_checks('2026-07', self.rec('london', '2026-06'), {})
+
+
+class RoadChecks(unittest.TestCase):
+    ROADS = [{'id': 'a1'}, {'id': 'a2'}]
+
+    def test_every_disruption_on_a_known_corridor_passes(self):
+        H.road_checks([{'id': 1, 'corridorIds': ['a1']}, {'id': 2, 'corridorIds': ['a2']}], corridors=self.ROADS)
+
+    def test_a_borough_road_an_unknown_corridor_and_a_duplicate_fail(self):
+        with self.assertRaisesRegex(Fail, 'no TfL corridor'):
+            H.road_checks([{'id': 1, 'corridorIds': ['a1']}, {'id': 2, 'corridorIds': []}], corridors=self.ROADS)
+        with self.assertRaisesRegex(Fail, 'does not list'):
+            H.road_checks([{'id': 1, 'corridorIds': ['zz']}], corridors=self.ROADS)
+        with self.assertRaisesRegex(Fail, 'duplicate'):
+            H.road_checks([{'id': 1, 'corridorIds': ['a1']}] * 2, corridors=self.ROADS)
+
+
+class LfbFileChecks(unittest.TestCase):
+    def animal(self, group='Cat', cost=328, n='1'):
+        return {'IncidentNumber': n, 'AnimalGroupParent': group, 'IncidentNotionalCost(£)': cost}
+
+    def test_animals(self):
+        H.animal_checks([self.animal(n='1'), self.animal('Unknown - Wild Animal', n='2')], '2026-07')
+        with self.assertRaisesRegex(Fail, 'cat'):
+            H.animal_checks([self.animal('cat')], '2026-07')
+        with self.assertRaisesRegex(Fail, 'numeric cost'):
+            H.animal_checks([self.animal(cost='NULL')], '2026-07')
+        with self.assertRaisesRegex(Fail, 'twice'):
+            H.animal_checks([self.animal(), self.animal()], '2026-07')
+
+    def test_lifts(self):
+        header = ['DateTimeOfCall', 'IncidentNumber']
+        by = {'2026-06': [{'DateTimeOfCall': datetime(2026, 6, 30, 23)}],
+              '2026-07': [{'DateTimeOfCall': datetime(2026, 7, 31, 22)}]}
+        H.lift_checks(header, [(None, '1'), (None, '2')], by, '2026-07')
+        with self.assertRaisesRegex(Fail, 'twice'):
+            H.lift_checks(header, [(None, '1'), (None, '1')], by, '2026-07')
+        with self.assertRaisesRegex(Fail, 'last call'):
+            H.lift_checks(header, [(None, '1')], dict(by, **{'2026-07': [{'DateTimeOfCall': datetime(2026, 7, 20)}]}),
+                          '2026-07')
+        with self.assertRaisesRegex(Fail, 'missing'):
+            H.lift_checks(header, [(None, '1')], {'2026-05': by['2026-06'], '2026-07': by['2026-07']}, '2026-07')
+
+    def test_incidents(self):
+        m = {'total': 1000, 'fires': 300, 'false_alarms': 400, 'special': 298}
+        H.lfb_checks(m, '2026-07')
+        with self.assertRaises(Fail):
+            H.lfb_checks(dict(m, special=200), '2026-07')
+
+
+class RailChecks(unittest.TestCase):
+    def test_a_capped_board_fails(self):
+        H.rail_board_checks({'Waterloo': [{}] * 149})
+        with self.assertRaises(Fail):
+            H.rail_board_checks({'Waterloo': [{}] * 150})
+
+    def test_a_train_from_another_terminus_is_counted_twice(self):
+        own = {'origin': [{'crs': 'WAT'}]}
+        H.rail_origin_checks({'Waterloo': [own], 'London Bridge': [{'origin': [{'crs': 'BTN'}]}]})
+        with self.assertRaisesRegex(Fail, '1 departures'):
+            H.rail_origin_checks({'Waterloo': [own], 'London Bridge': [{'origin': [{'crs': 'CHX'}]}]})
+
+
+class DatastoreChecks(unittest.TestCase):
+    JHEAD = ['Period and Financial year', 'Reporting Period', 'Days in period', 'Period beginning',
+             'Period ending', 'Bus journeys (m)']
+
+    def journeys(self, last_days=28, year_ago_num='5'):
+        rows, start = [self.JHEAD], datetime(2025, 7, 20)
+        for i in range(14):
+            n = last_days if i == 13 else 28
+            num = year_ago_num if i == 0 else str((i + 4) % 13 + 1)
+            end = start + timedelta(days=n - 1)
+            rows.append(['', num if i else year_ago_num, str(n), start.strftime('%d-%b-%y'), end.strftime('%d-%b-%y'), '1'])
+            start = end + timedelta(days=1)
+        rows[-1][1] = '5'
+        return rows
+
+    def test_journeys(self):
+        H.journey_checks(self.journeys())
+        with self.assertRaisesRegex(Fail, 'four weeks'):
+            H.journey_checks(self.journeys(last_days=32))
+        with self.assertRaisesRegex(Fail, 'year-earlier'):
+            H.journey_checks(self.journeys(year_ago_num='4'))
+        broken = self.journeys(); broken[5][3] = broken[4][4]
+        with self.assertRaisesRegex(Fail, 'break'):
+            H.journey_checks(broken)
+
+    def test_congestion(self):
+        head = ['Month', 'Captures', 'Confirmed', 'Days', 'Notes']
+        H.congestion_checks([head, ['Jul-25', '2900000', '2500000', '31', ''], ['Jul-26', '2783502', '2359567', '31', '']])
+        with self.assertRaisesRegex(Fail, 'confirmed against'):
+            H.congestion_checks([head, ['Jul-26', '2564414', '2784653', '31', '']])
+        with self.assertRaisesRegex(Fail, 'charging days'):
+            H.congestion_checks([head, ['Jun-26', '2', '1', '31', '']])
+
+    def test_strength(self):
+        head = ['Date', 'a', 'b', 'c']
+        H.strength_checks([head, ['Jun-26', '1', '1', '1'], ['Jul-26', '1', '1', '1']])
+        with self.assertRaisesRegex(Fail, 'missing'):
+            H.strength_checks([head, ['May-26', '1', '1', '1'], ['Jul-26', '1', '1', '1']])
+
+    def test_arrests(self):
+        head = ('Arrest Year', 'Arrest Month', 'Arrest Month Name', 'Gender', 'Age Group', 'Ethnicity (4+1)',
+                'First Arrest Offence', 'Domestic Abuse Flag', 'Arrest Count')
+        rows = [head, (2026, 7, 'July', 'M', 'A', 'W', 'Assault', 'No', 10),
+                (2026, 8, 'August', 'M', 'A', 'W', 'Assault', 'No', 10),
+                (2026, 8, 'August', 'M', 'A', 'W', 'Other Offence', 'No', 9)]
+        H.arrests_checks(rows)
+        with self.assertRaisesRegex(Fail, 'outnumbered'):
+            H.arrests_checks(rows[:3] + [(2026, 8, 'August', 'M', 'A', 'W', 'Other Offence', 'No', 11)])
+        with self.assertRaisesRegex(Fail, 'repeats'):
+            H.arrests_checks(rows + [rows[1]])
+        with self.assertRaisesRegex(Fail, 'missing'):
+            H.arrests_checks([head, (2026, 5, 'May', 'M', 'A', 'W', 'Assault', 'No', 10)] + rows[2:])
+
+    def test_reservoirs(self):
+        head = ['date', 'month', 'year', 'lower_lee_group', 'lower_thames_group']
+        H.reservoir_checks([head, ['30-Aug-26', 'Aug', '2026', '80', '70'], ['31-Aug-26', 'Aug', '2026', 'n/a', '70']])
+        with self.assertRaisesRegex(Fail, 'does not read'):
+            H.reservoir_checks([head, ['01/06/2020', 'Jun', '2020', '80', '70']])
+        with self.assertRaisesRegex(Fail, 'twice'):
+            H.reservoir_checks([head, ['30-Aug-26', 'Aug', '2026', '80', '70']] * 2)
+
+
+class UnemploymentChecks(unittest.TestCase):
+    def ons(self, london='6.8', uk='4.9'):
+        return {'ycni': {'months': [{'date': '2026 JUN', 'value': london}]},
+                'mgsx': {'months': [{'date': '2026 JUN', 'value': uk}]}}
+
+    ROWS = [('Apr-Jun 2026', 1.0, 6.5, None, 1.0, 4.9), ('May-Jul 2026', 355074.4, 6.7967, None, 1778258.8, 4.9047)]
+
+    def test_middle_month(self):
+        self.assertEqual(H.ons_middle_month('May-Jul 2026'), '2026 JUN')
+        self.assertEqual(H.ons_middle_month('Nov-Jan 2026'), '2025 DEC')
+        self.assertEqual(H.ons_middle_month('Dec-Feb 2026'), '2026 JAN')
+
+    def test_against_the_ons(self):
+        H.unemployment_checks(self.ROWS, ons=self.ons())
+        with self.assertRaisesRegex(Fail, 'London'):
+            H.unemployment_checks(self.ROWS, ons=self.ons(london='4.9'))   # a column swap
+        with self.assertRaisesRegex(Fail, 'no independent'):
+            H.unemployment_checks(self.ROWS, ons={'ycni': {'months': []}, 'mgsx': {'months': []}})
+
+
+class EventsAndListChecks(unittest.TestCase):
+    def ev(self, i, seg):
+        return {'id': str(i), 'classifications': [{'segment': {'name': seg}}]}
+
+    def test_events(self):
+        listings = [self.ev(0, 'Music'), self.ev(1, 'Music'), self.ev(2, 'Film')]
+        counts = {'week': 3, 'day': 1, 'month': 9, 'segments': {'Music': 2}}
+        H.events_checks(counts, listings, True)
+        with self.assertRaisesRegex(Fail, 'page'):
+            H.events_checks(counts, listings, False)
+        with self.assertRaisesRegex(Fail, 'total says'):
+            H.events_checks(dict(counts, week=4), listings, True)
+        with self.assertRaisesRegex(Fail, 'Music'):
+            H.events_checks(dict(counts, segments={'Music': 1}), listings, True)
+        with self.assertRaisesRegex(Fail, 'twice'):
+            H.events_checks(counts, listings[:2] + [self.ev(0, 'Film')], True)
+
+    def test_solt_list_age(self):
+        now = datetime(2026, 10, 7, tzinfo=timezone.utc)
+        H.solt_checks({'period': '2026-01'}, now=now)
+        with self.assertRaisesRegex(Fail, '21 months'):
+            H.solt_checks({'period': '2025-01'}, now=now)
+
+    def test_cinema_region(self):
+        H.cinema_checks({'Population (million)': 8.9})
+        with self.assertRaisesRegex(Fail, 'Greater London'):
+            H.cinema_checks({'Population (million)': 13.6})
 
 
 if __name__ == '__main__':
