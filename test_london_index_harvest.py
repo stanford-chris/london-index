@@ -2022,16 +2022,24 @@ class StationUsageAndFootfallChecks(unittest.TestCase):
         return rows, by, dates, footfall
 
     def test_footfall_ordinary_day_passes(self):
-        H.footfall_checks(*self.footfall({0: 300}))
+        rows, by, dates, _ = self.footfall({0: 300})
+        H.footfall_checks(rows, by, dates)
 
-    def test_footfall_closures_fail(self):
-        with self.assertRaisesRegex(Fail, 'quietest'):
-            H.footfall_checks(*self.footfall({0: 200}))         # 40% of its own 500
+    def test_footfall_closures_and_duplicates_fail(self):
+        rows, by, dates, _ = self.footfall({0: None})            # 9 stations against 10
         with self.assertRaisesRegex(Fail, 'stations against'):
-            H.footfall_checks(*self.footfall({0: None}))        # 9 stations against 10
-        rows, by, dates, ff = self.footfall({})
+            H.footfall_checks(rows, by, dates)
+        rows, by, dates, _ = self.footfall({})
         with self.assertRaisesRegex(Fail, 'twice'):
-            H.footfall_checks(rows + rows[:1], by, dates, ff)
+            H.footfall_checks(rows + rows[:1], by, dates)
+
+    def test_usual_is_the_same_weekday_median(self):
+        # Four Saturdays at 400 and weekdays at 1,000: a Saturday's usual is 400.
+        dates = [f'2026{m:02d}{d:02d}' for m, d in
+                 [(9, 5), (9, 7), (9, 12), (9, 14), (9, 19), (9, 21), (9, 26), (10, 3)]]
+        by = {d: (400 if datetime.strptime(d, '%Y%m%d').weekday() == 5 else 1000) for d in dates}
+        self.assertEqual(H.usual_for_weekday(by, '20261003', dates), 400)
+        self.assertIsNone(H.usual_for_weekday({'20261003': 1}, '20261003', dates))
 
 
 class StopSearchChecks(unittest.TestCase):

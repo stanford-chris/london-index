@@ -2557,9 +2557,9 @@ FOOTFALL_MIN_STATION_SHARE = 0.95
 FOOTFALL_QUIETEST_MIN_SHARE = 0.5
 
 
-def footfall_checks(rows, by_station_date, dates, footfall):
-    """The latest day of the footfall file (see london_index_provenance.py).
-    `footfall` is cleaned name -> taps for the day, after the data-gap guard."""
+def footfall_checks(rows, by_station_date, dates):
+    """The latest day of the footfall file (see london_index_provenance.py):
+    no station twice on a day, and no day of mass closures."""
     import statistics
     pairs = [(r['TravelDate'], r['Station'].strip()) for r in rows]
     require(len(set(pairs)) == len(pairs), 'footfall: a station appears twice on one day')
@@ -2569,13 +2569,19 @@ def footfall_checks(rows, by_station_date, dates, footfall):
         usual = statistics.median(count(d) for d in trailing)
         require(count(latest) >= FOOTFALL_MIN_STATION_SHARE * usual,
                 f'footfall {latest}: {count(latest)} stations against {usual:.0f} usually')
-    raw = {_clean_footfall_name(s): by for s, by in by_station_date.items()}
-    name, taps = min(footfall.items(), key=lambda kv: kv[1])
-    hist = [raw[name][d] for d in trailing if d in raw.get(name, {})]
-    if len(hist) >= FOOTFALL_ANOMALY_MIN_TRAILING_DAYS:
-        avg = sum(hist) / len(hist)
-        require(taps >= FOOTFALL_QUIETEST_MIN_SHARE * avg,
-                f'footfall {latest}: quietest, {name}, {taps:,} against its own {avg:,.0f}')
+
+
+def usual_for_weekday(by_date, latest, dates, n=4):
+    """The median of the station's last `n` same-weekday days before
+    `latest`, or None with fewer than three. Same weekday because a
+    weekend day sits near half a seven-day average at an ordinary station:
+    measured 20 and 27 September 2026, 103-106 stations "under half" that
+    way against 39-49 on their own Sunday, those being real closures."""
+    import statistics
+    wd = datetime.strptime(latest, '%Y%m%d').weekday()
+    prev = [by_date[d] for d in dates if d < latest and d in by_date
+            and datetime.strptime(d, '%Y%m%d').weekday() == wd][-n:]
+    return statistics.median(prev) if len(prev) >= 3 else None
 
 
 def harvest_daily_footfall():
@@ -2640,7 +2646,20 @@ def harvest_daily_footfall():
 
     if len(footfall) < 2:
         return [], f'fewer than 2 usable stations parsed for {latest} (after excluding likely data gaps)'
-    footfall_checks(rows, by_station_date, dates, footfall)
+    footfall_checks(rows, by_station_date, dates)
+
+    # "Quietest" is drawn only from stations at least half their usual for
+    # this weekday: under that it is a closure, not a quiet station (Roding
+    # Valley at 124 against ~491, posted 4 October 2026 during the Hainault
+    # loop closure). Rebuilt 8 October 2026 after the source audit.
+    raw = {_clean_footfall_name(st): by for st, by in by_station_date.items()}
+    open_today = {}
+    for name, taps in footfall.items():
+        usual = usual_for_weekday(raw[name], latest, dates)
+        if usual is None or taps >= FOOTFALL_QUIETEST_MIN_SHARE * usual:
+            open_today[name] = taps
+    closed = len(footfall) - len(open_today)
+    weekday = datetime.strptime(latest, '%Y%m%d').strftime('%A')
 
     date_obj = datetime.strptime(latest, '%Y%m%d')
     period_str = date_obj.strftime('%Y-%m-%d')
@@ -2657,15 +2676,20 @@ def harvest_daily_footfall():
     context_note = (
         "Counts from across the entire TfL network; entries and exits are counted "
         "separately, so the numbers are gate taps, in and out, combined")
+    gap_note = context_note + (
+        f'; {closed} station{"s" if closed != 1 else ""} under half '
+        f'{"their" if closed != 1 else "its"} usual {weekday} '
+        f'{"are" if closed != 1 else "is"} left out of the quietest, as likely closures'
+        if closed else '')
     busiest = max(footfall.items(), key=lambda kv: kv[1])
-    quietest = min(footfall.items(), key=lambda kv: kv[1])
+    quietest = min(open_today.items(), key=lambda kv: kv[1])
     facts = [
         fact(f'{busiest[1]:,}', f'Busiest: {busiest[0]}',
              'TfL Network Demand', url, period=period_str, pair='footfall_gap',
-             context_note=context_note),
+             context_note=gap_note),
         fact(f'{quietest[1]:,}', f'Quietest: {quietest[0]}',
              'TfL Network Demand', url, period=period_str, pair='footfall_gap',
-             context_note=context_note),
+             context_note=gap_note),
     ]
     # No dead-heat pair for this vein - dropped 31 August 2026, Chris's
     # call, and checked against the last 15 real days before removing:
