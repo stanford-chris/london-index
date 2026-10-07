@@ -886,22 +886,67 @@ class StationAndGaugeSpotlights(unittest.TestCase):
         self.assertIn('too quiet', err)
 
     def test_gauge_facts(self):
-        facts = H.gauge_facts(('Thames at Kingston', 4.312, 3.9, 4.6, 58.857, 'when'), 'u')
+        facts = H.gauge_facts(('Thames at Kingston', 4.312, 3.9, 4.6, 58.857, '2026-10-07T21:15:00Z'), 'u')
         self.assertEqual([(f['label'], f['value']) for f in facts],
                          [('Level now', '4.31m'), ('Typical low', '3.90m'), ('Typical high', '4.60m'),
                           ('Where it sits', '59% of the way up')])
         self.assertEqual(facts[0]['fixed_opener']['text'], 'The Thames at Kingston')
-        self.assertEqual(H.gauge_facts(('X', 5.0, 3.0, 4.0, 200.0, 'w'), 'u')[3]['value'], 'above its range')
-        self.assertEqual(H.gauge_facts(('X', 1.0, 3.0, 4.0, -200.0, 'w'), 'u')[3]['value'], 'below its range')
+        self.assertEqual(facts[0]['dateline_text'], '7 October at 10:15 p.m.')   # BST, the reading's time
+        self.assertIn('not the depth', facts[0]['context_note'])
+        w = '2026-10-07T21:15:00Z'
+        self.assertEqual(H.gauge_facts(('X', 5.0, 3.0, 4.0, 200.0, w), 'u')[3]['value'], 'above its range')
+        self.assertEqual(H.gauge_facts(('X', 1.0, 3.0, 4.0, -200.0, w), 'u')[3]['value'], 'below its range')
 
     def test_gauge_rotation_picks_least_recent_gauge(self):
-        readings = [(n, 1.0, 0.5, 2.0, 33.3, 'w') for n in H.RIVER_STATIONS]
+        now = datetime.now(timezone.utc).isoformat()
+        readings = [(n, 1.0, 0.5, 2.0, 33.3, now) for n in H.RIVER_STATIONS]
         with unittest.mock.patch.object(H, '_river_readings', return_value=(readings, [])), \
              unittest.mock.patch.object(H, 'river_checks', lambda r: None), \
              unittest.mock.patch.object(H, 'last_featured', return_value={n: '2026-09-01' for n in list(H.RIVER_STATIONS)[1:]}):
             facts, err = H.harvest_river_gauge()
         self.assertIsNone(err)
         self.assertEqual(facts[0]['fixed_opener']['text'], 'The ' + list(H.RIVER_STATIONS)[0])
+
+    def test_a_stale_gauge_is_never_the_spotlight(self):
+        now = datetime.now(timezone.utc)
+        names = list(H.RIVER_STATIONS)
+        readings = [(n, 1.0, 0.5, 2.0, 33.3,
+                     (now - timedelta(hours=11 if i == 0 else 0)).isoformat())
+                    for i, n in enumerate(names)]
+        with unittest.mock.patch.object(H, '_river_readings', return_value=(readings, [])), \
+             unittest.mock.patch.object(H, 'river_checks', lambda r: None), \
+             unittest.mock.patch.object(H, 'last_featured', return_value={n: '2026-09-01' for n in names[1:]}):
+            facts, err = H.harvest_river_gauge()
+        self.assertIsNone(err)
+        self.assertNotEqual(facts[0]['fixed_opener']['text'], 'The ' + names[0])
+
+
+class RiverLevelsCard(unittest.TestCase):
+    """The rebuilt ranking card, 8 October 2026."""
+
+    def run_card(self, ages_h, pcts):
+        now = datetime.now(timezone.utc)
+        readings = [(n, 1.0, 0.5, 2.0, p, (now - timedelta(hours=a)).isoformat())
+                    for n, a, p in zip(H.RIVER_STATIONS, ages_h, pcts)]
+        with unittest.mock.patch.object(H, '_river_readings', return_value=(readings, [])), \
+             unittest.mock.patch.object(H, 'river_checks', lambda r: None):
+            return H.harvest_river_levels()
+
+    def test_a_late_gauge_is_left_off_and_counted(self):
+        facts, err = self.run_card([0, 0, 0, 11, 0, 0], [53, 13, 1, -1, 6, 40])
+        self.assertIsNone(err)
+        got = {f['label']: f['value'] for f in facts}
+        self.assertEqual(got['Fullest: Thames at Kingston'], '53% of its typical range')
+        self.assertEqual(got['Driest: Ravensbourne at Catford'], '1% of its typical range')
+        self.assertNotIn('Roding', ' '.join(got))
+        self.assertIn('5 of the 6', facts[0]['context_note'])
+        self.assertIn('1 had not read', facts[0]['context_note'])
+        self.assertEqual(facts[0]['fixed_opener']['text'], 'London river gauges')
+        self.assertFalse(any('m' == v[-1] for v in got.values()))   # no metres
+
+    def test_too_few_fresh_gauges_fail_the_check(self):
+        with self.assertRaises(Fail):
+            self.run_card([0, 0, 0, 11, 11, 11], [53, 13, 1, -1, 6, 40])
 
 
 class DatastoreSeries(unittest.TestCase):

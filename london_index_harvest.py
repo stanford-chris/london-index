@@ -844,6 +844,29 @@ def river_checks(reading, now=None):
             f'{name}: reading is not a stage level in mASD ({measure!r})')
 
 
+def _reading_time(reading):
+    try:
+        t = datetime.fromisoformat(str(reading[5]).replace('Z', '+00:00'))
+    except ValueError:
+        return None
+    return t if t.tzinfo else None
+
+
+def fresh_readings(readings, now=None):
+    """The readings no more than RIVER_MAX_AGE old. A late gauge is left off
+    the card, never withheld with it: Roding at Wanstead was 11 hours
+    behind the other five on the night of 7 October 2026, as on the 6th."""
+    now = now or datetime.now(timezone.utc)
+    return [r for r in readings if _reading_time(r) and now - _reading_time(r) <= RIVER_MAX_AGE]
+
+
+def reading_dateline(readings):
+    """The second line from the readings' own time, in London time: the
+    newest of them. Every reading on the card is within RIVER_MAX_AGE."""
+    t = max(_reading_time(r) for r in readings).astimezone(ZoneInfo('Europe/London'))
+    return t.strftime(f'%-d %B at %-I:%M {"a.m." if t.hour < 12 else "p.m."}')
+
+
 # --- River gauge spotlight: one gauge against its own range -----------------
 GAUGE_OPENER_PREFIX = 'The '
 # Shortened from "River level against its own typical range" on 24 September
@@ -851,7 +874,8 @@ GAUGE_OPENER_PREFIX = 'The '
 # card's edge; briefly "River level", then this the same day, his call, to
 # keep a hint of the comparison. The title names the river, so "River" went.
 GAUGE_LEAD = 'Level against its typical range'
-GAUGE_NOTE = 'Environment Agency gauge; the typical range is the band the gauge itself publishes'
+GAUGE_NOTE = ('Environment Agency gauge; heights on the gauge, not the depth of the water; '
+              'the typical range is the band the gauge itself publishes')
 
 
 def gauge_facts(reading, url):
@@ -860,9 +884,10 @@ def gauge_facts(reading, url):
     _river_readings() tuple. Live: the dateline carries the clock."""
     name, value, low, high, pct, when = reading
     opener = {'emoji': '🌊', 'text': GAUGE_OPENER_PREFIX + name}
+    when_text = reading_dateline([reading])
     mk = lambda v, label: fact(v, label, 'Environment Agency', url, pair='gauge_all',
                                context_note=GAUGE_NOTE, dateline_lead=GAUGE_LEAD,
-                               fixed_opener=opener)
+                               fixed_opener=opener, dateline_text=when_text)
     where = ('below its range' if pct < 0 else 'above its range' if pct > 100
              else f'{pct:.0f}% of the way up')
     return [mk(f'{value:.2f}m', 'Level now'), mk(f'{low:.2f}m', 'Typical low'),
@@ -873,7 +898,10 @@ def harvest_river_gauge():
     readings, failed = _river_readings()
     if not readings:
         return [], f'no station returned a usable reading; failed: {failed}'
-    by_name = {r[0]: r for r in readings}
+    # Only a gauge with a reading in the last two hours can be the spotlight.
+    by_name = {r[0]: r for r in fresh_readings(readings)}
+    if not by_name:
+        return [], 'no gauge has read in the last two hours'
     name = spotlight_pick(list(by_name), last_featured(GAUGE_OPENER_PREFIX, RIVER_STATIONS))
     river_checks(by_name[name])
     url = f'https://environment.data.gov.uk/flood-monitoring/id/stations/{RIVER_STATIONS[name]}'
@@ -883,57 +911,61 @@ def harvest_river_gauge():
     return facts, None
 
 
+RIVERS_MIN_FRESH = 4      # a ranking of fewer gauges is not "fullest" of much
+RIVERS_OPENER = {'emoji': '🌊', 'text': 'London river gauges'}
+
+
 def harvest_river_levels():
+    """Fullest and driest of the six curated gauges, each by where it sits
+    in its OWN published typical range.
+
+    ⚠️ Rebuilt 8 October 2026 after the source audit (held 7 October). The
+    model titled it "River levels across London" over six hand-picked gauges
+    of ~155; the value led with the stage in metres ("0.03m"), which reads
+    as the depth of the water and is a height on the gauge; a gauge 12 hours
+    stale ranked as "Driest"; and the dateline was the run's time. Now a
+    fixed title, the position in range alone, late gauges left off and
+    counted in the footnote, and the readings' own time on the second line.
+    """
     readings, failed = _river_readings()
     if not readings:
         return [], f'no station returned a usable reading; failed: {failed}'
-    # Fullest and driest rank every gauge, so every gauge must be fresh.
-    for r in readings:
+    used = fresh_readings(readings)
+    late = len(readings) - len(used)
+    require(len(used) >= RIVERS_MIN_FRESH,
+            f'only {len(used)} of {len(readings)} gauges read in the last two hours')
+    for r in used:
         river_checks(r)
 
     url = 'https://environment.data.gov.uk/flood-monitoring/id/stations/{id}/readings'
+    when_text = reading_dateline(used)
+    note = (f'{len(used)} of the {len(RIVER_STATIONS)} Environment Agency gauges this account '
+            f'follows, each placed in its own typical range'
+            + (f'; {late + len(failed)} had not read in the last two hours' if late + len(failed) else ''))
 
-    def _val(value, pct):
-        # Unlike tfl_crowding's own value string ("31% of baseline"), this
-        # used to ship a bare "(55%)" with no referent at all - a reader
-        # asked "on this card, it's 55% of what?" on 31 August 2026, and
-        # nothing on the post could have answered them. "of range" matches
-        # the term already used for this stat elsewhere (see
-        # london_index_select.py's cross-vein rule, "a river's '% of
-        # range'"), so it stays consistent with how the account talks about
-        # this vein rather than inventing a second name for the same idea.
+    def _val(pct):
+        # Position in range alone: the stage in metres is a height on the
+        # gauge, not water depth, and ranks nothing across rivers.
         if pct < 0:
-            return f'{value}m (below range)'
+            return 'below its typical range'
         if pct > 100:
-            return f'{value}m (above range)'
-        return f'{value}m ({pct:.0f}% of range)'
+            return 'above its typical range'
+        return f'{pct:.0f}% of its typical range'
 
-    highest = max(readings, key=lambda r: r[4])
-    lowest = min(readings, key=lambda r: r[4])
-    facts = []
-    for prefix, r in [('Fullest', highest), ('Driest', lowest)]:
-        name, value, low, high, pct, when = r
-        # Label kept to "Word: name" (no "river", no range bounds) so it
-        # never wraps even for the longest curated names (Ravensbourne at
-        # Catford, Brent at Golders Green) alongside a value and a leader
-        # on one line -- see CARD_WIDTH's own comment on the same trade.
-        facts.append(fact(_val(value, pct), f'{prefix}: {name}',
-                           'Environment Agency', url, period=when,
-                           pair='river_gap'))
-    # Dead-heat: two of the 6 sampled gauges whose fullness (as % of typical
-    # range) happens to land on nearly the same reading, out of the whole
-    # curated set rather than just the extremes above.
-    heat = dead_heat([(r[0], r[4]) for r in readings])
+    mk = lambda r, label, pair: fact(_val(r[4]), label, 'Environment Agency', url,
+                                     pair=pair, context_note=note,
+                                     fixed_opener=RIVERS_OPENER, dateline_text=when_text)
+    highest = max(used, key=lambda r: r[4])
+    lowest = min(used, key=lambda r: r[4])
+    facts = [mk(highest, f'Fullest: {highest[0]}', 'river_gap'),
+             mk(lowest, f'Driest: {lowest[0]}', 'river_gap')]
+    # Dead-heat: two gauges whose position in range lands on nearly the
+    # same reading, out of every fresh gauge rather than just the extremes.
+    heat = dead_heat([(r[0], r[4]) for r in used])
     if heat:
-        name_a, _, name_b, _ = heat
-        by_name = {r[0]: r for r in readings}
-        for name in (name_a, name_b):
-            _, value, low, high, pct, when = by_name[name]
-            facts.append(fact(_val(value, pct), f'Level: {name}',
-                               'Environment Agency', url, period=when,
-                               pair='river_heat'))
-    if failed:
-        facts[0]['note'] = f'{len(failed)} of {len(RIVER_STATIONS)} curated gauges unusable: {failed}'
+        by_name = {r[0]: r for r in used}
+        for name in (heat[0], heat[2]):
+            facts.append(mk(by_name[name], f'Level: {name}', 'river_heat'))
     return facts, None
 
 
