@@ -101,10 +101,7 @@ def _observe_source_check(key, text):
 #   stop_search: "for weapons" leaves out firearms and section 60
 #   reservoirs: Thames Water's two groups as "London's reservoirs"; 122 rows
 #     in another date format silently dropped
-HELD_VEINS = {'station_usage', 'police', 'dcms_museums',
-              'museum_spotlight', 'congestion_charge', 'events', 'london_cinema',
-              'arrests', 'west_end_shows', 'lfb_animals', 'lift_releases',
-              'stop_search', 'reservoirs'}
+HELD_VEINS = set()   # all released, his call, 8 October 2026
 
 
 def build_pool(source=None):

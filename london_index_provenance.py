@@ -65,7 +65,7 @@ PROVENANCE = {
                            'against 74.5 million annualised (measured by the audit, 7 October 2026).',
         'complete_fetch': 'One sheet, 269 LU rows, names unique after cleaning; the S3 listing must say '
                           'IsTruncated false.',
-        'labels': 'Fixed 8 October 2026, held for his look: the footnote says “TfL’s yearly estimate from a typical autumn week, gate taps in and out; where other lines share the gates, their taps are in too”. The title “Busiest Tube stations” stands.',
+        'labels': 'Fixed and released 8 October 2026 (his call): the footnote says “TfL’s yearly estimate from a typical autumn week, gate taps in and out; where other lines share the gates, their taps are in too”. The title “Busiest Tube stations” stands.',
         'verified': '2026-10-07',
         'checks': [
             {'kind': 'SHAPE', 'when': 'build',
@@ -175,7 +175,7 @@ PROVENANCE = {
                            '4,160 (0.14%), every polygon id among the point search’s, 7 October 2026.',
         'complete_fetch': 'Under the API’s 10,000-record cap; no duplicate id; every record for the '
                           'month asked; farthest record 1,611 m from the centre.',
-        'labels': 'Fixed 8 October 2026, held for his look: anti-social behaviour is left out of the card, so “Reported crime” counts what the Met’s borough counts do.',
+        'labels': 'Fixed and released 8 October 2026 (his call): anti-social behaviour is left out of the card, so “Reported crime” counts what the Met’s borough counts do.',
         'verified': '2026-10-07',
         'checks': [
             {'kind': 'RECONCILE', 'when': 'build',
@@ -284,7 +284,7 @@ PROVENANCE = {
                            'thousand); ALVA’s 2025 site table puts about 2.5 million of the 37.3 million '
                            'outside London (audit, 7 October 2026).',
         'complete_fetch': 'One table; 18 museum rows and a Total; all 13 London rows published for 2024/25.',
-        'labels': 'Fixed 8 October 2026, held for his look: the “All London DCMS museums” total is gone; a gap or near-tie pair naming one of the four groups with sites outside London carries the footnote “Group figures include sites outside London”.',
+        'labels': 'Fixed and released 8 October 2026 (his call): the “All London DCMS museums” total is gone; a gap or near-tie pair naming one of the four groups with sites outside London carries the footnote “Group figures include sites outside London”.',
         'verified': '2026-10-07',
         'checks': [
             {'kind': 'RECONCILE', 'when': 'build',
@@ -307,7 +307,7 @@ PROVENANCE = {
                            'fetched (the Home Office’s by-force table is the candidate).',
         'complete_fetch': 'One answer; the month must be listed for the Met in crimes-street-dates (August '
                           'and March 2026 are not, so the vein falls back to July).',
-        'labels': 'Fixed 8 October 2026, held for his look: “For weapons” counts offensive weapons, firearms and section 60 searches (“Anything to threaten or harm anyone”).',
+        'labels': 'Fixed and released 8 October 2026 (his call): “For weapons” counts offensive weapons, firearms and section 60 searches (“Anything to threaten or harm anyone”).',
         'verified': '2026-10-07',
         'checks': [
             {'kind': 'SHAPE', 'when': 'build',
@@ -382,7 +382,7 @@ PROVENANCE = {
         'checked_against': 'The LFB master incident file (em8xy), SpecialServiceType “Animal assistance '
                            'incidents”: 213 = 213 for July 2026, 167 = 167 for June (audit, 7 October 2026).',
         'complete_fetch': 'One sheet; 213 incidents for July 2026, none twice, last call 31 July.',
-        'labels': 'Fixed 8 October 2026, held for his look: “Total” for “Animals rescued” (the second line says callouts), “Most: Lambeth” for “Most rescues: Lambeth”; “cat” folds into Cats; a month with any “NULL” cost drops the notional cost line rather than understating it.',
+        'labels': 'Fixed and released 8 October 2026 (his call): “Total” for “Animals rescued” (the second line says callouts), “Most: Lambeth” for “Most rescues: Lambeth”; “cat” folds into Cats; a month with any “NULL” cost drops the notional cost line rather than understating it.',
         'verified': '2026-10-07',
         'checks': [
             {'kind': 'SHAPE', 'when': 'build',
@@ -437,7 +437,7 @@ PROVENANCE = {
                            'Environment Agency’s monthly water situation report (PDF) is a manual option.',
         'complete_fetch': '13,757 rows to 31 August 2026; 122 rows (1 June 2020 to 30 September 2021) are '
                           'dd/mm/yyyy and do not parse; 15 levels read “n/a” or “---”.',
-        'labels': 'Fixed 8 October 2026, held for his look: the 122 dd/mm/yyyy rows of 2020-21 now read (all 122 agree day first with their month and year columns), and the title is “Thames Water’s London reservoirs”.',
+        'labels': 'Fixed and released 8 October 2026 (his call): the 122 dd/mm/yyyy rows of 2020-21 now read (all 122 agree day first with their month and year columns), and the title is “Thames Water’s London reservoirs”.',
         'verified': '2026-10-07',
         'checks': [
             {'kind': 'SHAPE', 'when': 'build',
@@ -473,7 +473,7 @@ PROVENANCE = {
                            'confirmed vehicles are at most the camera captures in 116 of 117 months; May '
                            '2026 (2,784,653 confirmed against 2,564,414 captures) is not.',
         'complete_fetch': 'One CSV, 193 lines, July 2010 to July 2026.',
-        'labels': 'Fixed 8 October 2026, held for his look: the card carries vehicles a charging day (distinct vehicles) and charging days, the change on a year earlier per charging day; the summed vehicle-days figure is gone. Page link now /dataset/2r88d.',
+        'labels': 'Fixed and released 8 October 2026 (his call): the card carries vehicles a charging day (distinct vehicles) and charging days, the change on a year earlier per charging day; the summed vehicle-days figure is gone. Page link now /dataset/2r88d.',
         'verified': '2026-10-07',
         'checks': [
             {'kind': 'SHAPE', 'when': 'build',
@@ -512,7 +512,7 @@ PROVENANCE = {
                            '(×1.231); the scopes differ, so not a tight reconcile (audit, 7 October 2026).',
         'complete_fetch': '17,941 rows, January 2022 to August 2026, every month present, no repeated '
                           'dimensions.',
-        'labels': 'Fixed 8 October 2026, held for his look: title “Metropolitan Police custody records”, “Most common named offence”, footnote “Records, not people, other agencies’ detainees included”. Page link now /dataset/2r7po.',
+        'labels': 'Fixed and released 8 October 2026 (his call): title “Metropolitan Police custody records”, “Most common named offence”, footnote “Records, not people, other agencies’ detainees included”. Page link now /dataset/2r7po.',
         'verified': '2026-10-07',
         'checks': [
             {'kind': 'SHAPE', 'when': 'build',
@@ -550,7 +550,7 @@ PROVENANCE = {
                            'against 816 for July 2026 (the lift file a strict subset, −1.3%); 0 to −4 a month '
                            'January 2024 to June 2026 (audit, 7 October 2026).',
         'complete_fetch': '20,615 incidents, August 2023 to July 2026, none twice; last call 31 July.',
-        'labels': 'Fixed 8 October 2026, held for his look: title “Lift rescues by the fire brigade”; rows “Callouts” and the dateline “Freed by the London Fire Brigade” unchanged. Page link now /dataset/2g980.',
+        'labels': 'Fixed and released 8 October 2026 (his call): title “Lift rescues by the fire brigade”; rows “Callouts” and the dateline “Freed by the London Fire Brigade” unchanged. Page link now /dataset/2g980.',
         'verified': '2026-10-07',
         'checks': [
             {'kind': 'SHAPE', 'when': 'build',
@@ -590,7 +590,7 @@ PROVENANCE = {
                            'listings pulled, 1,270 unique, total 1,270, every segment’s listings equal to '
                            'its total, 7 October 2026.',
         'complete_fetch': 'Per-segment paging, 627 at most against the API’s 1,000-item cap.',
-        'labels': 'Fixed 8 October 2026, held for his look: title “On Ticketmaster in London”, row “All listings” for “All events”; the dateline already says “Ticketmaster listings”.',
+        'labels': 'Fixed and released 8 October 2026 (his call): title “On Ticketmaster in London”, row “All listings” for “All events”; the dateline already says “Ticketmaster listings”.',
         'verified': '2026-10-07',
         'checks': [
             {'kind': 'SHAPE', 'when': 'build',
@@ -608,7 +608,7 @@ PROVENANCE = {
                            'Churchill War Rooms and HMS Belfast 1,496,411 against IWM’s 2,239,070 (financial '
                            'against calendar year, approximate; audit, 7 October 2026).',
         'complete_fetch': 'As dcms_museums.',
-        'labels': 'Fixed 8 October 2026, held for his look: the footnote “visitors include its sites outside London” goes on the four groups that have them (Science Museum Group, IWM, Tate, Natural History Museum) and no longer on Royal Museums Greenwich; IWM’s website visits are left off its card (break in series, Note 29).',
+        'labels': 'Fixed and released 8 October 2026 (his call): the footnote “visitors include its sites outside London” goes on the four groups that have them (Science Museum Group, IWM, Tate, Natural History Museum) and no longer on Royal Museums Greenwich; IWM’s website visits are left off its card (break in series, Note 29).',
         'verified': '2026-10-07',
         'checks': [
             {'kind': 'RECONCILE', 'when': 'build',
@@ -646,7 +646,7 @@ PROVENANCE = {
                            '749 screens against 1,031, 144 sites against 199, 15.8% against 21.7% (audit, '
                            '7 October 2026). Admissions are published only by television region.',
         'complete_fetch': 'One sheet; its 14 regions sum to its total (4,749 screens, 993 sites).',
-        'labels': 'Fixed 8 October 2026, held for his look: title “Cinemas in the London TV region”; the footnote names ITV’s London region and its population. Admissions exist only by TV region, so the card stays on that region rather than mixing it with Table 2’s Greater London.',
+        'labels': 'Fixed and released 8 October 2026 (his call): title “Cinemas in the London TV region”; the footnote names ITV’s London region and its population. Admissions exist only by TV region, so the card stays on that region rather than mixing it with Table 2’s Greater London.',
         'verified': '2026-10-07',
         'checks': [
             {'kind': 'SHAPE', 'when': 'build',
@@ -666,7 +666,7 @@ PROVENANCE = {
                            '“The Play That Goes Wrong” (4,001 or more) likely in the 20 now (audit, '
                            '7 October 2026).',
         'complete_fetch': '20 rows, counts falling rank by rank, the “supplied in” date found.',
-        'labels': 'Fixed 8 October 2026, held for his look: while the list is over 12 months old the “Newest of the West End’s longest runs” cut is dropped; the top four, the closed and the oldest cuts still hold, and the footnote names January 2025 as the latest data.',
+        'labels': 'Fixed and released 8 October 2026 (his call): while the list is over 12 months old the “Newest of the West End’s longest runs” cut is dropped; the top four, the closed and the oldest cuts still hold, and the footnote names January 2025 as the latest data.',
         'verified': '2026-10-07',
         'checks': [
             {'kind': 'SHAPE', 'when': 'build',

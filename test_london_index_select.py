@@ -553,7 +553,7 @@ class HeldVeins(unittest.TestCase):
     def test_the_live_hold_is_the_one_he_asked_for(self):
         # Pins the current hold; change this test as each vein is released.
         import london_index_select as Sel
-        self.assertEqual(len(Sel.HELD_VEINS), 13)
+        self.assertEqual(Sel.HELD_VEINS, set())
         self.assertFalse({'laqn', 'river_levels', 'river_gauge', 'daily_footfall',
                           'rail_departures', 'road_works'} & Sel.HELD_VEINS)
 
@@ -570,7 +570,8 @@ class HeldVeins(unittest.TestCase):
         def held():
             called.append('held')
             return [{'label': 'x', 'value': '1'}], None
-        with unittest.mock.patch.dict(H.HARVESTERS, {'police': held}, clear=True):
+        with unittest.mock.patch.dict(H.HARVESTERS, {'police': held}, clear=True), \
+             unittest.mock.patch.object(Sel, 'HELD_VEINS', {'police'}):
             self.assertEqual(Sel.build_pool()[0], [])
             self.assertEqual(len(Sel.build_pool('police')[0]), 1)
         self.assertEqual(called, ['held'])
