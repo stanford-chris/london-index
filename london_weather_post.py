@@ -187,6 +187,14 @@ def sun_times(target_date):
             format_ampm(sunset.hour, sunset.minute))
 
 
+def a_or_an(n):
+    """The article for a number as spoken: "an 89%", "an 8%", "an 11%",
+    "an 18%", but "a 100%" and "a 40%". Only the figures a percentage can
+    take are handled: those starting with "8" and the two teens that open on
+    a vowel sound."""
+    return 'an' if str(n).startswith('8') or n in (11, 18) else 'a'
+
+
 def conditions_text(code, pop):
     """Combine daySignificantWeatherCode and dayProbabilityOfPrecipitation
     into one row's worth of text — matching seoul_weather_post.py's own
@@ -203,7 +211,7 @@ def conditions_text(code, pop):
         return text
     if code in WET_CODES:
         return f'{text}, {pop}% chance of rain'
-    return f'{text} with a {pop}% chance of rain'
+    return f'{text} with {a_or_an(pop)} {pop}% chance of rain'
 
 
 def build_card_lines(entry, sunrise=None, sunset=None):
